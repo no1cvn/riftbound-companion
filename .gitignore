@@ -1,0 +1,9 @@
+# Local secrets — never commit a real RapidAPI key
+js/config.local.js
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+node_modules/
