@@ -1,0 +1,405 @@
+/* Riftbound Companion — "Hexgate" theme
+   Unofficial fan project. No Riot artwork is embedded in this stylesheet. */
+
+:root {
+  --void: #0a0d1c;
+  --surface: #121733;
+  --surface-2: #1a2147;
+  --line: #2a3463;
+  --text: #eef0fb;
+  --muted: #8c93bf;
+  --violet: #8b6bff;
+  --teal: #34e0c4;
+  --gold: #f4b740;
+  --danger: #ff6b81;
+  --radius: 14px;
+  --font-display: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--void);
+  color: var(--text);
+  font-family: var(--font-display);
+  -webkit-font-smoothing: antialiased;
+  height: 100%;
+}
+
+body {
+  overscroll-behavior-y: none;
+}
+
+a { color: var(--teal); }
+
+button, input, select, textarea {
+  font-family: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---------- App shell ---------- */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  padding: calc(var(--safe-top) + 12px) 16px 12px;
+  background: var(--void);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-name {
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+}
+
+/* Hexgate logo mark — own asset, drawn with CSS, no Riot art */
+.hexgate-mark {
+  display: inline-block;
+  width: 26px;
+  height: 26px;
+  background: conic-gradient(from 0deg, var(--violet), var(--teal), var(--violet));
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  position: relative;
+}
+.hexgate-mark::after {
+  content: "";
+  position: absolute;
+  inset: 30%;
+  background: var(--void);
+  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+}
+
+.view-root {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 16px calc(96px + var(--safe-bottom));
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.loading-text { color: var(--muted); }
+
+/* ---------- Bottom tab bar ---------- */
+
+.tab-bar {
+  position: fixed;
+  left: var(--safe-left);
+  right: var(--safe-right);
+  bottom: 0;
+  display: flex;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  padding: 8px 4px calc(8px + var(--safe-bottom));
+  z-index: 20;
+}
+
+.tab-btn {
+  flex: 1;
+  background: none;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 2px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.tab-btn .tab-icon { font-size: 1.15rem; line-height: 1; }
+
+.tab-btn[aria-current="page"] {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.tab-btn[aria-current="page"] .tab-icon { color: var(--teal); }
+
+/* ---------- Generic building blocks ---------- */
+
+h1, h2, h3 { font-weight: 700; letter-spacing: 0.01em; margin: 0 0 8px; }
+h1 { font-size: 1.4rem; }
+h2 { font-size: 1.15rem; }
+h3 { font-size: 1rem; }
+
+.section { margin-bottom: 24px; }
+
+.card-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-size: 0.92rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary {
+  background: var(--violet);
+  border-color: var(--violet);
+  color: var(--void);
+  font-weight: 700;
+}
+.btn-accent {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: var(--void);
+  font-weight: 700;
+}
+.btn-danger { border-color: var(--danger); color: var(--danger); background: transparent; }
+.btn-ghost { background: transparent; }
+.btn-block { width: 100%; }
+.btn[disabled] { opacity: 0.5; cursor: not-allowed; }
+
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.field label { font-size: 0.8rem; color: var(--muted); }
+.field input, .field select, .field textarea {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+}
+.field-row { display: flex; gap: 10px; }
+.field-row .field { flex: 1; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.badge-warn { border-color: var(--gold); color: var(--gold); }
+.badge-danger { border-color: var(--danger); color: var(--danger); }
+
+.price { color: var(--gold); font-weight: 700; }
+.price-muted { color: var(--muted); font-weight: 500; font-style: italic; }
+
+.banner {
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 14px;
+}
+.banner-warn { border-color: var(--gold); color: var(--gold); background: rgba(244, 183, 64, 0.08); }
+.banner-danger { border-color: var(--danger); color: var(--danger); background: rgba(255, 107, 129, 0.08); }
+
+.empty-state { color: var(--muted); text-align: center; padding: 40px 12px; }
+
+/* ---------- Scanner view ---------- */
+
+.scan-stage {
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 4 / 3;
+}
+.scan-stage video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.scan-guide {
+  position: absolute;
+  left: 15%;
+  right: 15%;
+  top: 42%;
+  height: 16%;
+  border: 2px solid var(--teal);
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(10, 13, 28, 0.45);
+  pointer-events: none;
+}
+.scan-hint {
+  position: absolute;
+  bottom: 8px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+.scan-controls {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.scan-result-card {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+.scan-result-card img {
+  width: 96px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+
+/* ---------- Card grid (collection / search) ---------- */
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 12px;
+}
+.card-tile {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.card-tile img {
+  width: 100%;
+  border-radius: 8px;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+.card-tile .name { font-size: 0.78rem; margin-top: 6px; line-height: 1.2; }
+.card-tile .meta { font-size: 0.68rem; color: var(--muted); }
+.card-tile .qty-badge {
+  position: absolute;
+  margin-top: -28px;
+  margin-left: 4px;
+  background: var(--violet);
+  color: var(--void);
+  font-weight: 700;
+  font-size: 0.68rem;
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+/* ---------- Stat row / curve chart ---------- */
+
+.stat-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.stat-box {
+  flex: 1;
+  min-width: 96px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.stat-box .stat-value { font-size: 1.2rem; font-weight: 700; }
+.stat-box .stat-label { font-size: 0.7rem; color: var(--muted); }
+
+.curve-chart { display: flex; align-items: flex-end; gap: 4px; height: 80px; }
+.curve-bar {
+  flex: 1;
+  background: linear-gradient(to top, var(--violet), var(--teal));
+  border-radius: 4px 4px 0 0;
+  min-height: 2px;
+  position: relative;
+}
+.curve-bar .curve-bar-label {
+  position: absolute;
+  bottom: -18px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+/* ---------- Lists ---------- */
+
+.list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.list-row:last-child { border-bottom: none; }
+
+/* ---------- Footer / legal ---------- */
+
+.legal-footer {
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* ---------- Misc ---------- */
+
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.muted { color: var(--muted); }
+.center { text-align: center; }
+.gap-8 { display: flex; gap: 8px; }
+.wrap { flex-wrap: wrap; }
+
+@media (max-width: 360px) {
+  .view-root { padding: 12px 12px calc(92px + var(--safe-bottom)); }
+  .card-grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+}
