@@ -12,9 +12,15 @@
 // anything you intend to put in a repo, even a private one.
 
 export const CONFIG = {
-  // RiftScribe — card database, no auth required.
+  // RiftScribe — card database, no auth required. Routed through a small
+  // Cloudflare Worker proxy, NOT riftscribe.gg directly: live testing showed
+  // riftscribe.gg returns HTTP 503 to cross-origin browser fetch() calls
+  // (confirmed — direct navigation to the same URL works fine, only
+  // browser-based fetch from another origin is blocked, likely a Cloudflare
+  // bot-protection rule on their side). The proxy makes the request
+  // server-side, where that restriction doesn't apply. See DECISIONS.md.
   riftscribe: {
-    baseUrl: "https://riftscribe.gg/api",
+    baseUrl: "https://red-shape-f615.canca-burakcan.workers.dev/api",
   },
 
   // TCGGO "riftbound-prices-api" via RapidAPI — optional, free tier ~100
