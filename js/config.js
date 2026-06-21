@@ -27,9 +27,15 @@ export const CONFIG = {
   // req/day. Leave rapidApiKey empty (prices disabled by default); the UI
   // will honestly show "price unavailable" instead of fabricating a value.
   // Use the in-app About > Settings field instead of editing this file.
+  //
+  // Note: you must "Subscribe" to this specific API on RapidAPI (even the
+  // free tier) before a key will work — a generic RapidAPI account key
+  // alone returns 403 "You are not subscribed to this API." Verified
+  // 2026-06-21: the real path is GET /cards?search=<name>, not /api/v1/cards
+  // (that 404s) — see DECISIONS.md item #4.
   prices: {
     host: "riftbound-prices-api.p.rapidapi.com",
-    baseUrl: "https://riftbound-prices-api.p.rapidapi.com/api/v1",
+    baseUrl: "https://riftbound-prices-api.p.rapidapi.com",
     rapidApiKey: "", // intentionally empty — never hardcode a real key here
   },
 
