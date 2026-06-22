@@ -13,11 +13,8 @@
 // still keeps a couple of defensive fallbacks rather than assuming the schema
 // can never drift. Re-verify with a live browser request on first real run.
 //
-// The TCGGO/RapidAPI price shape in fetchPriceByName() is UNVERIFIED — no
-// RapidAPI key was available during the build to make a real request. It is
-// implemented exactly against the documented example in CLAUDE.md §5.2 and
-// is defensive about missing fields. Never fabricates a price: any shape
-// mismatch or error resolves to "unavailable", not a guess.
+// The TCGGO/RapidAPI price shape in fetchPriceByName() is now VERIFIED — see
+// the comment block above that function for the real confirmed shape.
 
 import { CONFIG } from "./config.js";
 import { getApiKey } from "./store.js";
@@ -138,6 +135,26 @@ export const RiftScribe = {
 };
 
 /* ----------------------------- Prices (TCGGO / RapidAPI) ----------------------------- */
+//
+// VERIFIED 2026-06-21 against the live API with a real subscribed key (see
+// DECISIONS.md item #4 — this was previously guessed and WRONG in several
+// ways; the corrections below are from an actual captured response, not a
+// new guess):
+//   - Endpoint is GET /cards?search=<name>  (NOT /api/v1/cards — that path
+//     404s: "Endpoint '/api/v1/cards' does not exist").
+//   - The match list is under response.data (an array). response.results is
+//     a total-count NUMBER, not an array — using it as a list (an earlier
+//     bug) would have crashed on the first `.find()` call.
+//   - Pagination info is response.paging = { current, total, per_page }.
+//   - Each card's price lives at card.prices.cardmarket.lowest_near_mint
+//     (EUR, the lowest current near-mint listing) — there is no
+//     trend/avg_1d/avg_7d/avg_30d as originally assumed.
+//   - card.prices.cardmarket.graded is an array that was empty in every
+//     sample checked (several real cards). Its item shape is therefore
+//     still UNVERIFIED — handled defensively below, never fabricated.
+//   - A "tcgplayer" sibling under `prices` was never observed (tcgplayer_id
+//     was null on every sample checked) — handled defensively, not assumed
+//     absent forever.
 
 export function hasPriceKey() {
   return !!effectiveApiKey().trim();
@@ -172,38 +189,32 @@ export async function fetchPriceByName(name) {
     return { unavailable: true };
   }
 
-  const results = Array.isArray(data) ? data : data.results || data.cards || [data];
-  if (!results || results.length === 0) return { unavailable: true };
+  const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+  if (!list.length) return { unavailable: true };
 
   const lowerName = name.trim().toLowerCase();
-  const exact = results.find((r) => (r.name || "").trim().toLowerCase() === lowerName);
-  const match = exact || results[0];
+  const exact = list.find((r) => (r.name || "").trim().toLowerCase() === lowerName);
+  const match = exact || list[0];
   if (!match) return { unavailable: true };
 
-  const prices = match.prices || {};
-  const graded = match.graded_prices || {};
+  const cm = (match.prices && match.prices.cardmarket) || null;
+  const tp = (match.prices && match.prices.tcgplayer) || null;
+  const gradedList = Array.isArray(cm?.graded) ? cm.graded : [];
 
   return {
     unavailable: false,
     name: match.name || name,
-    cardmarket: prices.cardmarket
+    cardmarket: cm
       ? {
-          trend: prices.cardmarket.trend ?? null,
-          avg1d: prices.cardmarket.avg_1d ?? null,
-          avg7d: prices.cardmarket.avg_7d ?? null,
-          avg30d: prices.cardmarket.avg_30d ?? null,
-          low: prices.cardmarket.low ?? null,
+          currency: cm.currency || "EUR",
+          lowestNearMint: cm.lowest_near_mint ?? null,
+          availableItems: cm.available_items ?? null,
         }
       : null,
-    tcgplayer: prices.tcgplayer
-      ? { market: prices.tcgplayer.market ?? null, low: prices.tcgplayer.low ?? null }
-      : null,
-    graded: {
-      psa10: graded.psa_10 ?? null,
-      psa9: graded.psa_9 ?? null,
-      bgs95: graded.bgs_9_5 ?? null,
-    },
-    lastUpdated: match.last_updated || null,
+    tcgplayer: tp ? { market: tp.market ?? tp.price ?? null } : null,
+    // Defensive — graded array shape unverified (always empty in testing).
+    graded: gradedList.map((g) => ({ grade: g.grade ?? g.name ?? null, price: g.price ?? g.value ?? null })),
+    tcggoUrl: match.tcggo_url || null,
   };
 }
 
