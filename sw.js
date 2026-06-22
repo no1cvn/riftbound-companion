@@ -5,7 +5,7 @@
 // live from the data providers at runtime (guardrail #1 in CLAUDE.md: no
 // bundled/redistributed Riot artwork).
 
-const CACHE_VERSION = "rbc-shell-v2";
+const CACHE_VERSION = "rbc-shell-v3";
 
 const SHELL_ASSETS = [
   "./",
