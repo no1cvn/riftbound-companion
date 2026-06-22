@@ -3,7 +3,7 @@
 
 import * as store from "./store.js";
 import { RiftScribe, hasPriceKey, getPriceForCard } from "./api.js";
-import { Scanner, scanAndLookup, manualLookup } from "./scan.js";
+import { Scanner, scanAndLookup, manualLookup, splitCardId } from "./scan.js";
 
 /* ----------------------------- tiny DOM helpers ----------------------------- */
 
@@ -212,11 +212,32 @@ function renderManualEntryForm() {
   return wrap;
 }
 
-/** Prefill the manual form's number field when OCR found a number but no set. */
-function prefillManualNumber(manualBox, number) {
-  const input = manualBox.querySelector("#manual-number");
-  if (input) input.value = number;
+/**
+ * Prefills the manual entry form (set/number/variant) from whatever the
+ * scanner managed to read, even when it wasn't confident enough to look up
+ * automatically. Waits on getFilters() so the <option> elements for the set
+ * dropdown actually exist before trying to select one (they're populated
+ * asynchronously when the form is first built — see renderManualEntryForm).
+ */
+async function prefillManualForm(manualBox, { setCode, number, suffix } = {}) {
+  await getFilters();
+  const setSelect = manualBox.querySelector("#manual-set");
+  const numberInput = manualBox.querySelector("#manual-number");
+  const suffixSelect = manualBox.querySelector("#manual-suffix");
+  if (setSelect && setCode) {
+    const opt = Array.from(setSelect.options).find((o) => o.value === setCode);
+    if (opt) setSelect.value = setCode;
+  }
+  if (numberInput && number) numberInput.value = number;
+  if (suffixSelect && suffix !== undefined) {
+    const suffixOpt = Array.from(suffixSelect.options).find((o) => o.value === suffix);
+    if (suffixOpt) suffixSelect.value = suffix;
+  }
   manualBox.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function ocrHint(ocrText) {
+  return el("span", { class: "muted" }, `OCR read: "${ocrText || "—"}"`);
 }
 
 async function handleScanResult(result, container, manualBox) {
@@ -229,12 +250,28 @@ async function handleScanResult(result, container, manualBox) {
     return;
   }
   if (result.status === "needsSet") {
-    container.appendChild(el("div", { class: "banner banner-warn" }, `Read number ${result.number}, but no set code. Finish it below.`));
-    if (manualBox) prefillManualNumber(manualBox, result.number);
+    const hint = result.setCode ? `, set ${result.setCode}` : "";
+    container.appendChild(
+      el("div", { class: "banner banner-warn" }, [
+        `Read number ${result.number}${hint}, but couldn't confirm it confidently. Check it below.`,
+        el("br"),
+        ocrHint(result.ocrText),
+      ])
+    );
+    if (manualBox) await prefillManualForm(manualBox, { setCode: result.setCode, number: result.number, suffix: result.suffixGuess || "" });
     return;
   }
   if (result.status === "notFound") {
-    container.appendChild(el("div", { class: "banner banner-danger" }, `No card found for "${result.attemptedId}". Check the set/number and try manual entry.`));
+    container.appendChild(
+      el("div", { class: "banner banner-danger" }, [
+        `No card found for "${result.attemptedId}". Check the set/number/variant below and try again — `,
+        ocrHint(result.ocrText),
+      ])
+    );
+    if (manualBox) {
+      const parts = splitCardId(result.attemptedId);
+      if (parts) await prefillManualForm(manualBox, parts);
+    }
     return;
   }
 
