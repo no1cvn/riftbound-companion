@@ -2,10 +2,10 @@
 // collector-number lookup. The parser itself lives in parser.js (kept pure
 // so it's Node-testable without DOM/camera/Tesseract dependencies).
 
-import { parseCollectorNumber } from "./parser.js";
+import { parseCollectorNumber, splitCardId } from "./parser.js";
 import { RiftScribe } from "./api.js";
 
-export { parseCollectorNumber };
+export { parseCollectorNumber, splitCardId };
 
 const OCR_WHITELIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/-*";
 
@@ -146,9 +146,15 @@ export class Scanner {
 /**
  * Full scan-to-card flow: OCR -> parse -> lookup. Returns one of:
  *   { status: "found", card }
- *   { status: "needsSet", number }       — prefill manual form
- *   { status: "notFound", attemptedId }
+ *   { status: "needsSet", number, setCode?, suffixGuess?, ocrText } — prefill manual form
+ *   { status: "notFound", attemptedId, ocrText }
  *   { status: "noMatch", ocrText }       — garbage OCR, prompt retry/manual
+ *
+ * `ocrText` is included on every non-"found" status (not just "noMatch") so
+ * the UI can show the user what was actually read — useful when the parsed
+ * ID looks plausible but is wrong (e.g. an OCR-misread digit), since
+ * otherwise there'd be no way to tell a bad read from a card that's genuinely
+ * missing from the database.
  */
 export async function scanAndLookup(scanner) {
   const ocrText = await scanner.captureAndRecognize();
@@ -159,12 +165,12 @@ export async function scanAndLookup(scanner) {
     return { status: "noMatch", ocrText };
   }
   if (typeof parsed === "object" && parsed.needsSet) {
-    return { status: "needsSet", number: parsed.number };
+    return { status: "needsSet", number: parsed.number, setCode: parsed.setCode, suffixGuess: parsed.suffixGuess, ocrText };
   }
 
   const card = await RiftScribe.getCard(parsed);
   if (!card) {
-    return { status: "notFound", attemptedId: parsed };
+    return { status: "notFound", attemptedId: parsed, ocrText };
   }
   return { status: "found", card };
 }
