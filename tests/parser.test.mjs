@@ -2,7 +2,7 @@
 // parser. No framework required: run with `node tests/parser.test.mjs`.
 
 import assert from "node:assert/strict";
-import { parseCollectorNumber } from "../js/parser.js";
+import { parseCollectorNumber, splitCardId } from "../js/parser.js";
 
 const cases = [
   ["OGN 296/298", "OGN-296"],
@@ -66,13 +66,18 @@ for (const [input, expected] of cases) {
 }
 {
   const result = parseCollectorNumber('oH D— . a SED - 235/221 y7 4 a am ass ss os od');
-  // "SED" is not a real set code, but with no knownSets restriction the
-  // generic pattern still extracts *something* well-formed rather than
-  // nothing — RiftScribe's own lookup is the safety net that turns this
-  // into "not found" rather than a silently-wrong card. See DECISIONS.md.
-  assert.equal(result, "SED-235");
+  // "235" vs a printed total of "221" is impossible on a real card (the
+  // numerator can never exceed the denominator), so the denominator sanity
+  // check (added 2026-06-22, see below) catches this upstream now instead of
+  // confidently returning the malformed "SED-235" and relying on RiftScribe's
+  // 404 as the only safety net. Stripping the trailing digit ("23") also
+  // happens to land back in range, which is the same shape as the real
+  // misread-alt-art-suffix bug this check was added for.
+  assert.equal(typeof result, "object");
+  assert.equal(result.needsSet, true);
+  assert.equal(result.setCode, "SED");
   passed++;
-  console.log(`ok  - noisy unrestricted "...SED - 235/221..." -> "${result}" (expected to 404 downstream)`);
+  console.log(`ok  - noisy unrestricted "...SED - 235/221..." -> needsSet (numerator > denominator caught upstream)`);
 }
 
 // With knownSets restriction (what scan.js actually passes), the same noisy
@@ -92,6 +97,44 @@ for (const [input, expected] of cases) {
   assert.equal(result, "UNL-022a");
   passed++;
   console.log(`ok  - noisy text WITH knownSets still finds real "UNL-022a"`);
+}
+
+// Real field report (2026-06-22): an alt-art card printed "SFD 141a/221" but
+// the camera OCR misread the small "a" suffix marker as a digit, producing
+// "SFD 1412/221" — read confidently as the wrong card "SFD-1412" before this
+// fix. 1412 > 221 is impossible on a real card, so it must now be caught and
+// downgraded to a manual-completion prefill instead of a confident (wrong)
+// lookup.
+{
+  const knownSets = ["OGN", "OGS", "SFD", "UNL", "VEN"];
+  const result = parseCollectorNumber("SFD 1412/221", { knownSets });
+  assert.equal(typeof result, "object");
+  assert.equal(result.needsSet, true);
+  assert.equal(result.setCode, "SFD");
+  assert.equal(result.number, "141");
+  assert.equal(result.suffixGuess, "a");
+  passed++;
+  console.log(`ok  - misread alt-art suffix "SFD 1412/221" -> needsSet, setCode "SFD", number "141", suffixGuess "a"`);
+}
+
+// A genuinely large but in-range numerator must NOT be flagged — the
+// denominator check is a sanity check (numerator > denominator), not a
+// magnitude check.
+{
+  const result = parseCollectorNumber("OGN 298/298");
+  assert.equal(result, "OGN-298");
+  passed++;
+  console.log(`ok  - in-range numerator == denominator "OGN 298/298" -> "${result}" (not flagged)`);
+}
+
+// splitCardId() — used to prefill the manual form from a "not found" result.
+{
+  assert.deepEqual(splitCardId("SFD-141a"), { setCode: "SFD", number: "141", suffix: "a" });
+  assert.deepEqual(splitCardId("OGN-301-star"), { setCode: "OGN", number: "301", suffix: "-star" });
+  assert.deepEqual(splitCardId("UNL-1412"), { setCode: "UNL", number: "1412", suffix: "" });
+  assert.equal(splitCardId("garbage"), null);
+  passed++;
+  console.log(`ok  - splitCardId() splits set/number/suffix correctly`);
 }
 
 console.log(`\n${passed} passed, 0 failed`);
