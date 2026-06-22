@@ -194,6 +194,60 @@ during the build. Key points that confirm this project's architecture:
   This exact notice (with "Riftbound Companion" substituted) is in the About
   view footer (`js/app.js`) and the README's Legal section — not a paraphrase.
 
+## Scanner reliability fixes (2026-06-22, real-device feedback)
+
+Field testing on a real iPhone surfaced two more concrete bugs, both fixed:
+
+1. **Parser was anchored to the entire OCR string (`^...$`).** Real camera
+   captures of the guide-box region include noise from artwork/edges
+   alongside the actual code (e.g. raw OCR output `"| & UNL - 022a/219"` or
+   `"oH D— . a SED - 235/221 y7 4 a am ass ss os od"`). Any such noise made
+   every pattern miss entirely, even though the real code was sitting right
+   there in the string. Fixed in `js/parser.js`: patterns are now
+   boundary-aware substring matches (a non-letter/non-alnum boundary instead
+   of `^`/`$`), so a clean code embedded in noise is still found.
+
+   This does reopen a small false-positive risk on the *generic* (no
+   `knownSets`) pattern — e.g. the noisy example above contains "SED" which
+   reads as a plausible but fake 2-4-letter set code, so unrestricted
+   matching returns `"SED-235"`. This is caught downstream: `scanAndLookup()`
+   passes `RiftScribe.getFilters().sets` (cached once per session in
+   `scan.js`) into the parser as `knownSets`, restricting the set-code
+   alternative to the live, confirmed codes (`OGN, OGS, SFD, UNL, VEN` as of
+   this writing) instead of any uppercase run — so "SED" never matches in
+   practice. Even if it somehow did, `RiftScribe.getCard()` 404s on a bogus
+   ID, surfacing "not found" rather than a silently-wrong card. Both the
+   restricted and unrestricted behavior are covered by regression tests in
+   `tests/parser.test.mjs` using the exact noisy strings from the field
+   report.
+
+2. **The Tesseract character whitelist wasn't actually being applied.**
+   Real OCR output contained characters outside
+   `ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/-*` (e.g. `"|"`, `"&"`), even though
+   `tessedit_char_whitelist` was being passed to the convenience
+   `Tesseract.recognize(image, lang, options)` call. That loose-option form
+   is not reliably honored. Fixed in `js/scan.js`: explicit
+   `Tesseract.createWorker("eng")` + `worker.setParameters({
+   tessedit_char_whitelist })` before recognizing, which is the
+   documented-reliable path. The worker is created once and reused across
+   scans rather than per-scan.
+
+## Daily price-API call limit (2026-06-22)
+
+Per owner request: a hard cap of **100 outbound calls/day** to the price API
+(`CONFIG.prices.dailyLimit` in `js/config.js`), independent of whatever your
+actual RapidAPI plan allows — a local safety net so a long scanning session,
+or a bug, can't quietly run past a free tier's cap or rack up cost on a paid
+one. Implemented in `js/store.js` (`getPriceCallCount`/
+`incrementPriceCallCount`, keyed by the same 08:00-Berlin price-day as the
+price cache) and checked in `js/api.js#fetchPriceByName` *before* the
+network call — once hit, returns `{ unavailable: true, limitReached: true }`
+with zero additional requests until the next price-day. Cache hits (a card
+already priced today) never count against this, since they never reach
+`fetchPriceByName` at all. The UI (`js/app.js#priceLine`) shows a distinct
+"daily request limit reached" message rather than the generic
+"price unavailable" so it's clear why, not just that.
+
 ## Open items / roadmap reminders
 
 - Set auto-detect, perceptual-hash fallback, real-time scanning, friends/
