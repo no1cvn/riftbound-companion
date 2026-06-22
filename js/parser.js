@@ -11,6 +11,23 @@
 //
 // VERIFIED LIVE SET CODES (see DECISIONS.md): OGN, OGS, SFD, UNL, VEN.
 //
+// IMPORTANT — do NOT add a "numerator must be <= the printed denominator"
+// sanity check here (this was tried and reverted on 2026-06-22 — see
+// DECISIONS.md). Riftbound officially has "Overnumbered" bonus cards
+// printed with collector numbers ABOVE the set's printed total (confirmed
+// by Riot's own "Collectability in Riftbound: Origins" announcement —
+// Origins overnumbers run 299-310 on a 298-card base set; Spiritforged
+// overnumbers run from 222 up past 250 on a 221-card base set). These are
+// frequently the most valuable cards in the game (one Spiritforged
+// signature overnumber sells for ~$2,664), so a check that rejects
+// numerator > denominator as "low confidence" would actively break
+// scanning for exactly the cards a collector most wants to identify. Any
+// genuine OCR misread (e.g. a misread alt-art suffix fused into the digits)
+// is instead caught downstream: RiftScribe's own lookup 404s on a bogus ID,
+// and the "not found" UI shows the raw OCR text + lets the user correct the
+// prefilled manual-entry form (see js/app.js handleScanResult / scan.js
+// splitCardId) — a reactive fix, not a preemptive guess.
+//
 // Output of parse():
 //   - string                  -> a RiftScribe-ready card ID, e.g. "OGN-296",
 //                                "OGN-100a", "OGN-301-star", "UNL-T03"
@@ -37,31 +54,6 @@ function normalize(raw) {
 
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
- * On a real printed card the numerator can never exceed the denominator
- * (e.g. "141/221" — number/set total). When a match's captured numerator
- * *does* exceed its captured denominator, that's a reliable signal the OCR
- * fused an adjacent character into the digit run — confirmed from a real
- * field report: an alt-art card printed "SFD 141a/221" had its small "a"
- * suffix marker misread as a trailing digit, producing "SFD 1412/221" (a
- * confident-looking but impossible "SFD-1412"). Rather than hand that to
- * RiftScribe as a guess, this is downgraded to a manual-completion result.
- *
- * If stripping the trailing digit brings the numerator back in range, that
- * stripped number plus a guessed "a" (alt-art) suffix are offered as a
- * *prefill* for the manual form — never a confident final answer, since the
- * user still has to press "Look up" to confirm it. A wrong guess here costs
- * a glance, not a silently-wrong card.
- */
-function lowConfidenceNumber(setCode, number, total) {
-  if (!total || Number(number) <= Number(total)) return null;
-  const stripped = number.slice(0, -1);
-  if (stripped && Number(stripped) <= Number(total)) {
-    return { number: stripped, needsSet: true, setCode, suffixGuess: "a" };
-  }
-  return { number, needsSet: true, setCode };
 }
 
 /**
@@ -109,30 +101,27 @@ export function parseCollectorNumber(rawText, opts = {}) {
     return `${setCode}-T${num}`;
   }
 
-  // Signature/star: "OGN 301*" / "OGN-301/298*"
-  const starMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)(?:/([0-9]+))?\\s*\\*${POST}`));
+  // Signature/star: "OGN 301*" / "OGN-301/298*" — also covers Overnumbered
+  // signature cards like "SFD 227*/221" (number > printed total; see the
+  // file-header note above on why that's never treated as low-confidence).
+  const starMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)(?:/[0-9]+)?\\s*\\*${POST}`));
   if (starMatch) {
-    const [, setCode, number, total] = starMatch;
-    const low = lowConfidenceNumber(setCode, number, total);
-    if (low) return low;
+    const [, setCode, number] = starMatch;
     return `${setCode}-${number}-star`;
   }
 
   // Alternate art: "OGN 100A" / "OGN-100A/298"
-  const altMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)([A-Z])(?:/([0-9]+))?${POST}`));
+  const altMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)([A-Z])(?:/[0-9]+)?${POST}`));
   if (altMatch) {
-    const [, setCode, number, letter, total] = altMatch;
-    const low = lowConfidenceNumber(setCode, number, total);
-    if (low) return low;
+    const [, setCode, number, letter] = altMatch;
     return `${setCode}-${number}${letter.toLowerCase()}`;
   }
 
-  // Standard: "OGN 296/298" / "OGN-296"
-  const stdMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)(?:/([0-9]+))?${POST}`));
+  // Standard: "OGN 296/298" / "OGN-296" — also covers Overnumbered cards
+  // like "SFD 235/221" (number > printed total is expected/valid here).
+  const stdMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)(?:/[0-9]+)?${POST}`));
   if (stdMatch) {
-    const [, setCode, number, total] = stdMatch;
-    const low = lowConfidenceNumber(setCode, number, total);
-    if (low) return low;
+    const [, setCode, number] = stdMatch;
     return `${setCode}-${number}`;
   }
 
