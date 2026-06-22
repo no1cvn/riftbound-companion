@@ -37,6 +37,12 @@ export const CONFIG = {
     host: "riftbound-prices-api.p.rapidapi.com",
     baseUrl: "https://riftbound-prices-api.p.rapidapi.com",
     rapidApiKey: "", // intentionally empty — never hardcode a real key here
+    // Hard stop on outbound price-API calls per price-day, independent of
+    // whatever your actual RapidAPI plan allows — a local safety net so a
+    // bug (or a long session of scanning) can't run up a bill on a paid
+    // tier or blow through a free tier's daily cap without you noticing.
+    // Cache hits (already-priced-today cards) don't count against this.
+    dailyLimit: 100,
   },
 
   // Price cache rolls over at 08:00 Europe/Berlin (owner's primary market).
