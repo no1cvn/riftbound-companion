@@ -19,6 +19,7 @@ const KEYS = {
   alerts: NS + "alerts",
   prices: NS + "prices",
   settings: NS + "settings",
+  priceCallCount: NS + "priceCallCount",
 };
 
 function detectLocalStorage() {
@@ -330,6 +331,28 @@ export function setCachedPrice(cardId, day, data) {
   const prices = readJSON(KEYS.prices, {});
   prices[cardId] = { day, data };
   writeJSON(KEYS.prices, prices);
+}
+
+/* ----------------------------- Price-API daily call counter ----------------------------- */
+//
+// Tracks how many *actual network calls* to the price API have been made
+// today (same price-day key as the price cache, see api.js#priceDayKey),
+// so api.js can stop calling out once a configured daily limit is hit —
+// the free RapidAPI tier is ~100 req/day, and paid tiers bill per request,
+// so this is a real cost/quota guard, not just a nice-to-have. A cache HIT
+// (already-priced-today card) never increments this — only genuine outbound
+// requests count.
+
+export function getPriceCallCount(day) {
+  const rec = readJSON(KEYS.priceCallCount, { day: null, count: 0 });
+  return rec.day === day ? rec.count : 0;
+}
+
+export function incrementPriceCallCount(day) {
+  const current = getPriceCallCount(day);
+  const next = current + 1;
+  writeJSON(KEYS.priceCallCount, { day, count: next });
+  return next;
 }
 
 /* ----------------------------- Local-only settings (API key) ----------------------------- */
