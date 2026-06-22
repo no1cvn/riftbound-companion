@@ -28,6 +28,9 @@ function fmtMoney(value, symbol) {
 }
 
 function priceLine(p) {
+  if (p && p.limitReached) {
+    return el("p", { class: "price-muted" }, "Price unavailable — daily request limit reached (resets 08:00 Berlin)");
+  }
   if (!p || p.unavailable) return el("p", { class: "price-muted" }, "Price unavailable");
   const parts = [];
   if (p.cardmarket && p.cardmarket.lowestNearMint != null) {
