@@ -40,6 +40,31 @@ function escapeRegExp(s) {
 }
 
 /**
+ * On a real printed card the numerator can never exceed the denominator
+ * (e.g. "141/221" — number/set total). When a match's captured numerator
+ * *does* exceed its captured denominator, that's a reliable signal the OCR
+ * fused an adjacent character into the digit run — confirmed from a real
+ * field report: an alt-art card printed "SFD 141a/221" had its small "a"
+ * suffix marker misread as a trailing digit, producing "SFD 1412/221" (a
+ * confident-looking but impossible "SFD-1412"). Rather than hand that to
+ * RiftScribe as a guess, this is downgraded to a manual-completion result.
+ *
+ * If stripping the trailing digit brings the numerator back in range, that
+ * stripped number plus a guessed "a" (alt-art) suffix are offered as a
+ * *prefill* for the manual form — never a confident final answer, since the
+ * user still has to press "Look up" to confirm it. A wrong guess here costs
+ * a glance, not a silently-wrong card.
+ */
+function lowConfidenceNumber(setCode, number, total) {
+  if (!total || Number(number) <= Number(total)) return null;
+  const stripped = number.slice(0, -1);
+  if (stripped && Number(stripped) <= Number(total)) {
+    return { number: stripped, needsSet: true, setCode, suffixGuess: "a" };
+  }
+  return { number, needsSet: true, setCode };
+}
+
+/**
  * @param {string} rawText
  * @param {{ knownSets?: string[] }} [opts] — when provided (a non-empty
  *   array of currently-valid set codes, e.g. from RiftScribe's live
@@ -85,23 +110,29 @@ export function parseCollectorNumber(rawText, opts = {}) {
   }
 
   // Signature/star: "OGN 301*" / "OGN-301/298*"
-  const starMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)(?:/[0-9]+)?\\s*\\*${POST}`));
+  const starMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)(?:/([0-9]+))?\\s*\\*${POST}`));
   if (starMatch) {
-    const [, setCode, number] = starMatch;
+    const [, setCode, number, total] = starMatch;
+    const low = lowConfidenceNumber(setCode, number, total);
+    if (low) return low;
     return `${setCode}-${number}-star`;
   }
 
   // Alternate art: "OGN 100A" / "OGN-100A/298"
-  const altMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)([A-Z])(?:/[0-9]+)?${POST}`));
+  const altMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)([A-Z])(?:/([0-9]+))?${POST}`));
   if (altMatch) {
-    const [, setCode, number, letter] = altMatch;
+    const [, setCode, number, letter, total] = altMatch;
+    const low = lowConfidenceNumber(setCode, number, total);
+    if (low) return low;
     return `${setCode}-${number}${letter.toLowerCase()}`;
   }
 
   // Standard: "OGN 296/298" / "OGN-296"
-  const stdMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)(?:/[0-9]+)?${POST}`));
+  const stdMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)(?:/([0-9]+))?${POST}`));
   if (stdMatch) {
-    const [, setCode, number] = stdMatch;
+    const [, setCode, number, total] = stdMatch;
+    const low = lowConfidenceNumber(setCode, number, total);
+    if (low) return low;
     return `${setCode}-${number}`;
   }
 
@@ -112,4 +143,27 @@ export function parseCollectorNumber(rawText, opts = {}) {
   }
 
   return null; // garbage — no confident match
+}
+
+/**
+ * Splits a RiftScribe-ready card ID (as produced above, e.g. "SFD-141a",
+ * "OGN-301-star") back into its set/number/variant-suffix parts. Used to
+ * prefill the manual entry form when a scan's guessed ID comes back
+ * "not found" — lets the user correct a likely OCR misread without
+ * retyping everything from scratch. Returns null if `id` doesn't look like
+ * a set-number ID at all.
+ */
+export function splitCardId(id) {
+  if (typeof id !== "string") return null;
+  const m = id.match(/^([A-Z0-9]+)-(.+)$/);
+  if (!m) return null;
+  const [, setCode, rest] = m;
+  if (rest.endsWith("-star")) {
+    return { setCode, number: rest.slice(0, -5), suffix: "-star" };
+  }
+  const altSuffix = rest.match(/^([0-9]+)([a-z])$/);
+  if (altSuffix) {
+    return { setCode, number: altSuffix[1], suffix: altSuffix[2] };
+  }
+  return { setCode, number: rest, suffix: "" };
 }
