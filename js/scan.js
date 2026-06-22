@@ -7,6 +7,8 @@ import { RiftScribe } from "./api.js";
 
 export { parseCollectorNumber };
 
+const OCR_WHITELIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/-*";
+
 let tesseractLoadPromise = null;
 
 /** Lazy-load Tesseract.js from CDN only when the user actually scans. */
@@ -21,6 +23,42 @@ function loadTesseract() {
     document.head.appendChild(script);
   });
   return tesseractLoadPromise;
+}
+
+// VERIFIED 2026-06-22: passing `tessedit_char_whitelist` as a loose key in
+// the third argument of the convenience `Tesseract.recognize(image, lang,
+// options)` call (the original approach) is NOT reliably honored — real
+// scans returned characters outside the whitelist (e.g. "|", "&"). The
+// documented-reliable way is to create a worker explicitly and call
+// `worker.setParameters(...)` before recognizing. The worker is created
+// once and reused across scans (cheap to keep warm, expensive to keep
+// re-creating per scan).
+let workerPromise = null;
+async function getWorker() {
+  if (!workerPromise) {
+    workerPromise = (async () => {
+      const Tesseract = await loadTesseract();
+      const worker = await Tesseract.createWorker("eng");
+      await worker.setParameters({ tessedit_char_whitelist: OCR_WHITELIST });
+      return worker;
+    })();
+  }
+  return workerPromise;
+}
+
+/** Cached live set codes (e.g. ["OGN","OGS","SFD","UNL","VEN"]) — fetched
+ * once per session from RiftScribe so the parser can restrict its set-code
+ * match instead of accepting any 2-4 uppercase letters from OCR noise. See
+ * parser.js and DECISIONS.md. Falls back to an empty list (generic
+ * matching) if the lookup fails. */
+let knownSetsPromise = null;
+async function getKnownSets() {
+  if (!knownSetsPromise) {
+    knownSetsPromise = RiftScribe.getFilters()
+      .then((f) => f.sets || [])
+      .catch(() => []);
+  }
+  return knownSetsPromise;
 }
 
 export class Scanner {
@@ -69,7 +107,7 @@ export class Scanner {
    * it through parseCollectorNumber).
    */
   async captureAndRecognize() {
-    const Tesseract = await loadTesseract();
+    const worker = await getWorker();
 
     const videoRect = this.videoEl.getBoundingClientRect();
     const guideRect = this.guideBoxEl.getBoundingClientRect();
@@ -99,9 +137,7 @@ export class Scanner {
     }
     ctx.putImageData(imgData, 0, 0);
 
-    const { data } = await Tesseract.recognize(canvas, "eng", {
-      tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/-*",
-    });
+    const { data } = await worker.recognize(canvas);
 
     return (data.text || "").trim();
   }
@@ -116,7 +152,8 @@ export class Scanner {
  */
 export async function scanAndLookup(scanner) {
   const ocrText = await scanner.captureAndRecognize();
-  const parsed = parseCollectorNumber(ocrText);
+  const knownSets = await getKnownSets();
+  const parsed = parseCollectorNumber(ocrText, { knownSets });
 
   if (parsed === null) {
     return { status: "noMatch", ocrText };
