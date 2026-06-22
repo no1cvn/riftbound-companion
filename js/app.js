@@ -30,9 +30,9 @@ function fmtMoney(value, symbol) {
 function priceLine(p) {
   if (!p || p.unavailable) return el("p", { class: "price-muted" }, "Price unavailable");
   const parts = [];
-  if (p.cardmarket && p.cardmarket.trend != null) {
-    parts.push(el("span", { class: "price" }, `€${p.cardmarket.trend.toFixed(2)} `));
-    parts.push(el("span", { class: "muted" }, "Cardmarket trend  "));
+  if (p.cardmarket && p.cardmarket.lowestNearMint != null) {
+    parts.push(el("span", { class: "price" }, `€${p.cardmarket.lowestNearMint.toFixed(2)} `));
+    parts.push(el("span", { class: "muted" }, "Cardmarket lowest (NM)  "));
   }
   if (p.tcgplayer && p.tcgplayer.market != null) {
     parts.push(el("span", { class: "price" }, `$${p.tcgplayer.market.toFixed(2)} `));
@@ -40,14 +40,17 @@ function priceLine(p) {
   }
   if (!parts.length) return el("p", { class: "price-muted" }, "Price unavailable");
   const wrap = el("div", {}, parts);
-  if (p.graded && (p.graded.psa10 || p.graded.psa9 || p.graded.bgs95)) {
-    const g = el("div", { class: "gap-8 wrap", style: "margin-top:6px" }, [
-      el("span", { class: "badge" }, "Graded"),
-      p.graded.psa10 ? el("span", { class: "badge" }, `PSA10 $${p.graded.psa10.toFixed(2)}`) : null,
-      p.graded.psa9 ? el("span", { class: "badge" }, `PSA9 $${p.graded.psa9.toFixed(2)}`) : null,
-      p.graded.bgs95 ? el("span", { class: "badge" }, `BGS9.5 $${p.graded.bgs95.toFixed(2)}`) : null,
-    ]);
-    wrap.appendChild(g);
+  if (Array.isArray(p.graded) && p.graded.length) {
+    const g = el(
+      "div",
+      { class: "gap-8 wrap", style: "margin-top:6px" },
+      [el("span", { class: "badge" }, "Graded")].concat(
+        p.graded
+          .filter((g) => g.price != null)
+          .map((g) => el("span", { class: "badge" }, `${g.grade || "?"} €${Number(g.price).toFixed(2)}`))
+      )
+    );
+    if (g.children.length > 1) wrap.appendChild(g);
   }
   return wrap;
 }
@@ -284,7 +287,7 @@ function renderCollectionView(root) {
     const data = cached && cached.data;
     if (data && !data.unavailable) {
       pricedCount++;
-      if (data.cardmarket && data.cardmarket.trend != null) totalEur += data.cardmarket.trend * entry.qty;
+      if (data.cardmarket && data.cardmarket.lowestNearMint != null) totalEur += data.cardmarket.lowestNearMint * entry.qty;
       if (data.tcgplayer && data.tcgplayer.market != null) totalUsd += data.tcgplayer.market * entry.qty;
     }
   }
@@ -598,7 +601,7 @@ function computeDeckStats(deck) {
     curve[cost] = (curve[cost] || 0) + e.qty;
 
     const cached = store.getCachedPrice(e.card.id);
-    const price = cached && cached.data && !cached.data.unavailable ? cached.data.cardmarket?.trend : null;
+    const price = cached && cached.data && !cached.data.unavailable ? cached.data.cardmarket?.lowestNearMint : null;
     if (price == null) {
       pricedAll = false;
     } else {
@@ -738,7 +741,7 @@ function renderWishlistView(root) {
     const cached = store.getCachedPrice(cardId);
     const data = cached && cached.data;
     if (!data || data.unavailable) return null;
-    return data.cardmarket && data.cardmarket.trend != null ? data.cardmarket.trend : null;
+    return data.cardmarket && data.cardmarket.lowestNearMint != null ? data.cardmarket.lowestNearMint : null;
   });
   for (const t of triggered) {
     alertsBox.appendChild(
