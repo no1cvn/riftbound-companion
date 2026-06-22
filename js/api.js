@@ -13,11 +13,14 @@
 // still keeps a couple of defensive fallbacks rather than assuming the schema
 // can never drift. Re-verify with a live browser request on first real run.
 //
-// The TCGGO/RapidAPI price shape in fetchPriceByName() is now VERIFIED — see
-// the comment block above that function for the real confirmed shape.
+// The TCGGO/RapidAPI price shape in fetchPriceByName() is UNVERIFIED — no
+// RapidAPI key was available during the build to make a real request. It is
+// implemented exactly against the documented example in CLAUDE.md §5.2 and
+// is defensive about missing fields. Never fabricates a price: any shape
+// mismatch or error resolves to "unavailable", not a guess.
 
 import { CONFIG } from "./config.js";
-import { getApiKey } from "./store.js";
+import { getApiKey, getPriceCallCount, incrementPriceCallCount } from "./store.js";
 
 /**
  * The RapidAPI key, preferring whatever the user pasted into the in-app
@@ -163,14 +166,28 @@ export function hasPriceKey() {
 /**
  * Look up prices by card name via TCGGO. Never fabricates a price: returns
  * { unavailable: true } on missing key, network failure, or unexpected shape.
+ *
+ * Enforces CONFIG.prices.dailyLimit (default 100) outbound calls per
+ * price-day BEFORE making the request — once hit, returns
+ * { unavailable: true, limitReached: true } without touching the network,
+ * so a long scanning session can't run past your RapidAPI quota or rack up
+ * cost on a paid tier. Cache hits in getPriceForCard() never reach this
+ * function at all, so re-viewing an already-priced-today card is free.
  */
 export async function fetchPriceByName(name) {
   const key = effectiveApiKey();
   if (!key || !name) return { unavailable: true };
 
+  const day = priceDayKey();
+  const limit = CONFIG.prices.dailyLimit ?? 100;
+  if (getPriceCallCount(day) >= limit) {
+    return { unavailable: true, limitReached: true };
+  }
+
   const url = `${CONFIG.prices.baseUrl}/cards${qs({ search: name })}`;
   let res;
   try {
+    incrementPriceCallCount(day); // count the attempt itself, not just successes
     res = await fetch(url, {
       headers: {
         "X-RapidAPI-Key": key,
