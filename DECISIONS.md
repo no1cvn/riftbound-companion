@@ -248,6 +248,63 @@ already priced today) never count against this, since they never reach
 "daily request limit reached" message rather than the generic
 "price unavailable" so it's clear why, not just that.
 
+## Scan failure UX: show raw OCR text + prefill manual form (2026-06-22)
+
+Alongside the fix above, `js/scan.js#scanAndLookup` now returns the raw
+`ocrText` on every non-"found" status (previously only on "noMatch"), and
+`js/app.js#handleScanResult` shows it in the "not found" banner too, plus
+prefills the manual entry form's set/number/variant fields from the
+attempted ID (via the new `js/parser.js#splitCardId`) so correcting a wrong
+read is a quick edit instead of retyping from scratch. This is the part of
+the original fix that's still correct and live — see the revert below for
+the part that wasn't.
+
+## Overnumbered cards: a "numerator <= denominator" sanity check was tried and reverted (2026-06-22)
+
+The fix above also originally added a check to `js/parser.js`: if the
+camera read a number bigger than the set's printed total (e.g. "1412" vs a
+printed "/221"), treat it as a likely OCR misread (the small alt-art "a"
+suffix marker getting fused into the digits as a stray "2") rather than a
+confident match, and downgrade to manual completion.
+
+**This was wrong and has been reverted.** The owner correctly pointed out
+that Riftbound has cards numbered *above* the set's printed total on
+purpose — verified via Riot's own announcement, ["Collectability in
+Riftbound: Origins"](https://riftbound.leagueoflegends.com/en-us/news/announcements/collectability-in-riftbound-origins/):
+Origins is a 298-card base set whose "Overnumbered" bonus cards run 299-310
+(12 confirmed, per [Collector Station](https://collectorstation.com/all-12-riftbound-overnumbered-cards-revealed-in-origins-set)).
+Spiritforged is a 221-card base set whose Overnumbers run from 222 up past
+250 (per [riftbound.gg](https://riftbound.gg/riftbound-spiritforged-overnumbered-cards/));
+Unleashed (219-card base) has confirmed Overnumbers at least up to 238 (real
+eBay listings, e.g. Baron Nashor 238/219). These are frequently the
+*most valuable* cards in the game — e.g. Ahri – Inquisitive (Signature),
+printed `227*/221`, is currently the highest-priced single Riftbound card at
+roughly $2,664 (TCGplayer market, per [tcgodds.com](https://tcgodds.com/riftbound/signature-cards/)).
+A check that rejects numerator > denominator would have actively broken
+camera scanning for exactly the cards an owner is most likely to want to
+identify and price-check.
+
+The exact numbers above (e.g. "Spiritforged overnumbers go up past 250") are
+**not** hardcoded anywhere in the app — secondary sources disagree on the
+precise per-set overnumber count, and Riot drip-reveals these over time, so
+baking in a specific ceiling would just trade one wrong assumption for
+another. Instead, `js/parser.js` now has **no** denominator-based confidence
+check at all (see the file-header comment added as a guard against
+reintroducing this), and `tests/parser.test.mjs` has a regression test
+(`"SFD 235/221"` and the real `"SFD 227*/221"` signature card) asserting
+overnumbered cards resolve normally, never as a low-confidence/needsSet
+result.
+
+The original bug this was meant to fix (a misread alt-art "a" producing a
+garbled number like "SFD-1412") is instead handled the way it already was
+before this whole fix round, plus the OCR-text-display improvement above:
+RiftScribe's lookup 404s on the bogus ID, "not found" shows the raw OCR text
+so the mismatch is visible, and the manual form is prefilled from the
+attempted ID so fixing it is a quick edit. This is a reactive correction,
+not a preemptive guess — which fits the same OCR-imperfection tradeoff
+already accepted and documented for the generic (no-`knownSets`) "SED-235"
+case above.
+
 ## Open items / roadmap reminders
 
 - Set auto-detect, perceptual-hash fallback, real-time scanning, friends/
