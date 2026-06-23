@@ -66,18 +66,15 @@ for (const [input, expected] of cases) {
 }
 {
   const result = parseCollectorNumber('oH D— . a SED - 235/221 y7 4 a am ass ss os od');
-  // "235" vs a printed total of "221" is impossible on a real card (the
-  // numerator can never exceed the denominator), so the denominator sanity
-  // check (added 2026-06-22, see below) catches this upstream now instead of
-  // confidently returning the malformed "SED-235" and relying on RiftScribe's
-  // 404 as the only safety net. Stripping the trailing digit ("23") also
-  // happens to land back in range, which is the same shape as the real
-  // misread-alt-art-suffix bug this check was added for.
-  assert.equal(typeof result, "object");
-  assert.equal(result.needsSet, true);
-  assert.equal(result.setCode, "SED");
+  // "SED" is not a real set code, but with no knownSets restriction the
+  // generic pattern still extracts *something* well-formed rather than
+  // nothing — RiftScribe's own lookup is the safety net that turns this
+  // into "not found" rather than a silently-wrong card. See DECISIONS.md.
+  // (A "numerator <= denominator" sanity check was tried here and reverted
+  // 2026-06-22 — see the Overnumbered-cards regression test below.)
+  assert.equal(result, "SED-235");
   passed++;
-  console.log(`ok  - noisy unrestricted "...SED - 235/221..." -> needsSet (numerator > denominator caught upstream)`);
+  console.log(`ok  - noisy unrestricted "...SED - 235/221..." -> "${result}" (expected to 404 downstream)`);
 }
 
 // With knownSets restriction (what scan.js actually passes), the same noisy
@@ -99,32 +96,31 @@ for (const [input, expected] of cases) {
   console.log(`ok  - noisy text WITH knownSets still finds real "UNL-022a"`);
 }
 
-// Real field report (2026-06-22): an alt-art card printed "SFD 141a/221" but
-// the camera OCR misread the small "a" suffix marker as a digit, producing
-// "SFD 1412/221" — read confidently as the wrong card "SFD-1412" before this
-// fix. 1412 > 221 is impossible on a real card, so it must now be caught and
-// downgraded to a manual-completion prefill instead of a confident (wrong)
-// lookup.
+// Overnumbered cards (regression guard, added 2026-06-22): Riftbound has an
+// officially confirmed "Overnumbered" mechanic — bonus chase cards printed
+// with a collector number ABOVE the set's printed total (e.g. Spiritforged
+// overnumbers run from 222 past 250 on a 221-card base set; Origins
+// overnumbers run 299-310 on a 298-card base set). A "numerator must be <=
+// denominator" sanity check was tried as a fix for OCR misreads and then
+// reverted because it broke recognition of exactly these — often the most
+// valuable — cards. These must resolve normally, never as needsSet/low
+// confidence. See DECISIONS.md and the file-header note in parser.js.
 {
   const knownSets = ["OGN", "OGS", "SFD", "UNL", "VEN"];
-  const result = parseCollectorNumber("SFD 1412/221", { knownSets });
-  assert.equal(typeof result, "object");
-  assert.equal(result.needsSet, true);
-  assert.equal(result.setCode, "SFD");
-  assert.equal(result.number, "141");
-  assert.equal(result.suffixGuess, "a");
+  const result = parseCollectorNumber("SFD 235/221", { knownSets });
+  assert.equal(result, "SFD-235");
   passed++;
-  console.log(`ok  - misread alt-art suffix "SFD 1412/221" -> needsSet, setCode "SFD", number "141", suffixGuess "a"`);
+  console.log(`ok  - Overnumbered card "SFD 235/221" -> "${result}" (not flagged as low-confidence)`);
 }
-
-// A genuinely large but in-range numerator must NOT be flagged — the
-// denominator check is a sanity check (numerator > denominator), not a
-// magnitude check.
 {
-  const result = parseCollectorNumber("OGN 298/298");
-  assert.equal(result, "OGN-298");
+  const knownSets = ["OGN", "OGS", "SFD", "UNL", "VEN"];
+  // Real card: Ahri – Inquisitive (Signature), printed 227*/221 — currently
+  // the highest-priced single Riftbound card (~$2,664 TCGplayer, per
+  // tcgodds.com). Must resolve, not be downgraded.
+  const result = parseCollectorNumber("SFD 227*/221", { knownSets });
+  assert.equal(result, "SFD-227-star");
   passed++;
-  console.log(`ok  - in-range numerator == denominator "OGN 298/298" -> "${result}" (not flagged)`);
+  console.log(`ok  - Overnumbered signature card "SFD 227*/221" -> "${result}"`);
 }
 
 // splitCardId() — used to prefill the manual form from a "not found" result.
