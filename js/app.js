@@ -234,7 +234,7 @@ function renderHome() {
   }
 
   // Triggered alerts
-  const alerts = store.listAlerts ? store.listAlerts() : [];
+  const alerts = store.listAlerts();
   const triggeredAlerts = alerts.filter(a => {
     const cached = store.getCachedPrice(a.cardId);
     const d = cached?.data;
@@ -399,7 +399,7 @@ function renderSettingsModal() {
 
   $("#settings-save-btn", backdrop).addEventListener("click", () => {
     const key = $("#settings-key-input", backdrop).value.trim();
-    if (store.setApiKey) store.setApiKey(key);
+    store.setApiKey(key);
     document.body.removeChild(backdrop);
     showToast(key ? "API key saved" : "Key cleared");
   });
@@ -671,7 +671,7 @@ function openDeckDetail(deckId) {
    âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
 function renderWishlist() {
-  const wishlist = store.listWishlist ? store.listWishlist() : [];
+  const wishlist = wishlistCards();
   const alerts   = store.listAlerts  ? store.listAlerts()   : [];
 
   // Build combined list: wishlist entries + alert annotations
@@ -745,7 +745,7 @@ function renderWishlist() {
 function attachWishlistEvents(root) {
   for (const row of $$(".wishlist-row[data-card-id]", root)) {
     row.addEventListener("click", async () => {
-      const wishlist = store.listWishlist ? store.listWishlist() : [];
+      const wishlist = wishlistCards();
       const entry = wishlist.find(e => e.card.id === row.dataset.cardId);
       if (entry) openCardDetail(entry.card);
     });
@@ -816,7 +816,7 @@ function buildCardDetailHTML(card, price, market) {
   // In collection?
   const { entries } = store.collectionStats();
   const inCollection = entries.some(e => e.card.id === card.id);
-  const wishlistEntries = store.listWishlist ? store.listWishlist() : [];
+  const wishlistEntries = wishlistCards();
   const inWishlist = wishlistEntries.some(e => e.card.id === card.id);
 
   return `
@@ -917,13 +917,13 @@ function attachCardDetailEvents(overlay, card) {
   // Wishlist toggle
   const wlBtn = $("#cd-wishlist-btn", overlay);
   if (wlBtn) wlBtn.addEventListener("click", () => {
-    const wl = store.listWishlist ? store.listWishlist() : [];
+    const wl = wishlistCards();
     const inWl = wl.some(e => e.card.id === card.id);
     if (inWl) {
-      if (store.removeFromWishlist) store.removeFromWishlist(card.id);
+      removeFromWishlist(card.id);
       showToast("Removed from wishlist");
     } else {
-      if (store.addToWishlist) store.addToWishlist(card);
+      addToWishlist(card);
       showToast("Added to wishlist");
     }
     overlay.innerHTML = buildCardDetailHTML(card, S.activePrice, S.cdMarket);
@@ -962,7 +962,7 @@ function promptPriceAlert(card) {
   $("#al-save",  backdrop).addEventListener("click", () => {
     const target = parseFloat($("#al-target", backdrop).value);
     if (!isNaN(target) && target > 0) {
-      if (store.setAlert) store.setAlert(card.id, direction, target);
+      store.addAlert(card.id, direction, target);
       document.body.removeChild(backdrop);
       showToast(`Alert set: ${direction} ${fmtEur(target)}`);
     }
@@ -1276,29 +1276,31 @@ function downloadFile(filename, content, mime) {
   URL.revokeObjectURL(url);
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-   STORE COMPATIBILITY SHIM
-   (store.js may not have all wishlist/alert methods yet)
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+/* ═══════════════════════════════════════════════════════════════════
+   WISHLIST HELPERS — bridge store's multi-list API to app's flat view
+   ═══════════════════════════════════════════════════════════════════ */
 
-if (!store.listWishlist) {
-  // Minimal in-memory wishlist shim
-  const WL = [];
-  store.listWishlist     = () => WL;
-  store.addToWishlist    = (card) => { if (!WL.find(e => e.card.id === card.id)) WL.push({ card }); };
-  store.removeFromWishlist = (cardId) => { const i = WL.findIndex(e => e.card.id === cardId); if (i >= 0) WL.splice(i, 1); };
+function _defaultWishlistId() {
+  let lists = store.listWishlists();
+  if (!lists.length) lists = [store.createWishlist("Wishlist")];
+  return lists[0].id;
 }
-if (!store.listAlerts) {
-  const AL = [];
-  store.listAlerts = () => AL;
-  store.setAlert   = (cardId, direction, target) => {
-    const i = AL.findIndex(a => a.cardId === cardId);
-    if (i >= 0) AL[i] = { cardId, direction, target };
-    else AL.push({ cardId, direction, target });
-  };
+
+function wishlistCards() {
+  return store.listWishlists().flatMap(l => Object.values(l.cards || {}));
 }
-if (!store.setApiKey) {
-  store.setApiKey = (key) => { try { localStorage.setItem("rbc:rapidApiKey", key); } catch {} };
+
+function addToWishlist(card) {
+  store.addCardToWishlist(_defaultWishlistId(), card);
+}
+
+function removeFromWishlist(cardId) {
+  for (const list of store.listWishlists()) {
+    if (list.cards && list.cards[cardId]) {
+      store.removeCardFromWishlist(list.id, cardId);
+      return;
+    }
+  }
 }
 
 /* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
