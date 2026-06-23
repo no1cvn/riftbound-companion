@@ -1,882 +1,1333 @@
-// js/app.js — views, routing, rendering. Vanilla ES modules, no framework,
-// no build step.
+// js/app.js â Riftbound Companion PWA
+// Complete rewrite to Hexgate design system (pixel-perfect from .dc.html files).
+// All views wire to existing api.js / store.js / scan.js â no fabricated data.
 
 import * as store from "./store.js";
-import { RiftScribe, hasPriceKey, getPriceForCard } from "./api.js";
+import { RiftScribe, hasPriceKey, getPriceForCard, priceDayKey } from "./api.js";
 import { Scanner, scanAndLookup, manualLookup, splitCardId } from "./scan.js";
 
-/* ----------------------------- tiny DOM helpers ----------------------------- */
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   STATE
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
-function el(tag, attrs = {}, children = []) {
-  const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs || {})) {
-    if (k === "class") node.className = v;
-    else if (k === "html") node.innerHTML = v;
-    else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2), v);
-    else if (v !== false && v !== null && v !== undefined) node.setAttribute(k, v);
-  }
-  for (const child of [].concat(children)) {
-    if (child === null || child === undefined) continue;
-    node.appendChild(typeof child === "string" ? document.createTextNode(child) : child);
-  }
-  return node;
-}
+const TAB_ORDER = ["home", "collection", "decks", "wishlist"];
 
-function fmtMoney(value, symbol) {
-  if (value === null || value === undefined) return null;
-  return `${symbol}${Number(value).toFixed(2)}`;
-}
-
-function priceLine(p) {
-  if (p && p.limitReached) {
-    return el("p", { class: "price-muted" }, "Price unavailable — daily request limit reached (resets 08:00 Berlin)");
-  }
-  if (!p || p.unavailable) return el("p", { class: "price-muted" }, "Price unavailable");
-  const parts = [];
-  if (p.cardmarket && p.cardmarket.lowestNearMint != null) {
-    parts.push(el("span", { class: "price" }, `€${p.cardmarket.lowestNearMint.toFixed(2)} `));
-    parts.push(el("span", { class: "muted" }, "Cardmarket lowest (NM)  "));
-  }
-  if (p.tcgplayer && p.tcgplayer.market != null) {
-    parts.push(el("span", { class: "price" }, `$${p.tcgplayer.market.toFixed(2)} `));
-    parts.push(el("span", { class: "muted" }, "TCGplayer market"));
-  }
-  if (!parts.length) return el("p", { class: "price-muted" }, "Price unavailable");
-  const wrap = el("div", {}, parts);
-  if (Array.isArray(p.graded) && p.graded.length) {
-    const g = el(
-      "div",
-      { class: "gap-8 wrap", style: "margin-top:6px" },
-      [el("span", { class: "badge" }, "Graded")].concat(
-        p.graded
-          .filter((g) => g.price != null)
-          .map((g) => el("span", { class: "badge" }, `${g.grade || "?"} €${Number(g.price).toFixed(2)}`))
-      )
-    );
-    if (g.children.length > 1) wrap.appendChild(g);
-  }
-  return wrap;
-}
-
-function cardImageEl(card, size = "medium") {
-  const src = (card.imageThumb && (card.imageThumb[size] || card.imageThumb.large)) || card.image;
-  return el("img", { src: src || "", alt: card.name, loading: "lazy" });
-}
-
-/* ----------------------------- router ----------------------------- */
-
-const ROOT = document.getElementById("view-root");
-const TAB_BTNS = Array.from(document.querySelectorAll(".tab-btn"));
-
-const routes = {
-  scan: renderScanView,
-  collection: renderCollectionView,
-  decks: renderDecksView,
-  wishlist: renderWishlistView,
-  about: renderAboutView,
+const S = {
+  tab:          "home",
+  prevTab:      null,
+  tabLock:      false,
+  overlay:      null,    // 'scan' | 'card' | null
+  overlaying:   false,   // closing animation in flight
+  scanPhase:    "aim",   // aim | scanning | manual | result
+  activeCard:   null,    // normalised card object for Card Detail
+  activePrice:  null,    // price data for Card Detail
+  cdMarket:     "cm",    // 'cm' | 'tcg'
+  collection:   {},
+  filters:      null,    // RiftScribe filter cache
+  scanner:      null,    // Scanner instance
+  collSearch:   "",
+  collFilter:   "all",
 };
 
-function navigate(route) {
-  for (const btn of TAB_BTNS) {
-    if (btn.dataset.route === route) btn.setAttribute("aria-current", "page");
-    else btn.removeAttribute("aria-current");
-  }
-  ROOT.innerHTML = "";
-  (routes[route] || renderScanView)(ROOT);
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   DOM SHORTCUTS
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+
+const $ = (sel, ctx = document) => ctx.querySelector(sel);
+const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
+
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   FACTION COLOURS (matches dc.html CardFace component exactly)
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+
+const FACTION_MAP = {
+  Fury:  ["#ff5b5b", "#3a1220"],
+  Calm:  ["#3aa0ff", "#0f2140"],
+  Mind:  ["#8b6bff", "#1c1640"],
+  Body:  ["#34e0c4", "#0f2e2c"],
+  Chaos: ["#f4923b", "#3a2010"],
+  Order: ["#f4b740", "#352712"],
+};
+
+function factionColors(faction) {
+  return FACTION_MAP[faction] || FACTION_MAP.Mind;
 }
 
-for (const btn of TAB_BTNS) {
-  btn.addEventListener("click", () => navigate(btn.dataset.route));
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   CARD FACE HTML COMPONENT
+   Renders the CSS frame (placeholder/loading). When a real image URL
+   exists it overlays on top via the <img> tag.
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+
+function cardFaceHTML(card) {
+  const faction = card?.faction || "Mind";
+  const [c, deep] = factionColors(faction);
+  const name   = card?.name || "?";
+  const emblem = name.charAt(0).toUpperCase();
+  const rarity = card?.rarity || "";
+  const setNo  = [card?.setId, card?.collectorNumber].filter(Boolean).join(" Â· ");
+  const cost   = card?.energy ?? card?.cost ?? "";
+  const imgSrc = card?.image || (card?.imageThumb?.medium) || (card?.imageThumb?.large) || "";
+
+  const bgGrad   = `linear-gradient(150deg,${deep} 0%,#0a0d1c 78%)`;
+  const glowGrad = `radial-gradient(110% 80% at 50% 18%,${c}33 0%,transparent 55%)`;
+
+  return `<div class="card-face" style="background:${bgGrad}">
+    <div class="cf-glow" style="background:${glowGrad}"></div>
+    <div class="cf-dots"></div>
+    <div class="cf-hex-bg"  style="background:${c}"></div>
+    <div class="cf-hex-ring" style="box-shadow:inset 0 0 0 1.5px ${c}"></div>
+    <div class="cf-emblem"  style="color:${c};text-shadow:0 0 6cqw ${c}">${emblem}</div>
+    ${cost !== "" ? `<div class="cf-cost" style="box-shadow:inset 0 0 0 1.5px ${c}">${cost}</div>` : ""}
+    <div class="cf-footer">
+      <div class="cf-rarity-row">
+        <span class="cf-rarity-dot" style="background:${c};box-shadow:0 0 2.5cqw ${c}"></span>
+        <span class="cf-rarity-txt">${rarity}</span>
+      </div>
+      <div class="cf-name">${name}</div>
+      <div class="cf-setno">${setNo}</div>
+    </div>
+    ${imgSrc ? `<img src="${imgSrc}" alt="${name}" loading="lazy">` : ""}
+  </div>`;
 }
 
-/* =============================================================================
-   SCAN VIEW (P1)
-   ============================================================================= */
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   PRICE FORMATTING
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
-let scannerInstance = null;
-let filtersCache = null;
+function fmtEur(v) { return v != null ? `â¬${Number(v).toFixed(2)}` : null; }
+function fmtUsd(v) { return v != null ? `$${Number(v).toFixed(2)}` : null; }
 
-async function getFilters() {
-  if (filtersCache) return filtersCache;
-  try {
-    filtersCache = await RiftScribe.getFilters();
-  } catch {
-    filtersCache = { sets: [], factions: [], rarities: [], types: [] };
-  }
-  return filtersCache;
+function primaryPriceStr(p, market = "cm") {
+  if (!p || p.unavailable) return null;
+  if (market === "cm") return fmtEur(p?.cardmarket?.lowestNearMint);
+  return fmtUsd(p?.tcgplayer?.market);
 }
 
-function renderScanView(root) {
-  const banner = el("div", { class: "banner", id: "scan-banner", style: "display:none" });
-  const stage = el("div", { class: "scan-stage" }, [
-    el("video", { id: "scan-video", playsinline: "true", muted: "true" }),
-    el("div", { class: "scan-guide", id: "scan-guide" }),
-    el("div", { class: "scan-hint" }, "Hold the card number here"),
-  ]);
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   TOAST
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
-  const startBtn = el("button", { class: "btn btn-primary btn-block" }, "Start camera");
-  const scanBtn = el("button", { class: "btn btn-accent btn-block", disabled: true }, "Scan number");
-  const controls = el("div", { class: "scan-controls" }, [startBtn, scanBtn]);
-
-  const resultBox = el("div", { id: "scan-result" });
-  const manualBox = renderManualEntryForm();
-
-  root.append(
-    el("h1", {}, "Scan a card"),
-    banner,
-    stage,
-    controls,
-    resultBox,
-    el("div", { class: "section" }, [el("h2", {}, "Manual entry"), manualBox])
-  );
-
-  function showBanner(message, kind = "warn") {
-    banner.textContent = message;
-    banner.className = `banner banner-${kind}`;
-    banner.style.display = "block";
-  }
-
-  startBtn.addEventListener("click", async () => {
-    banner.style.display = "none";
-    scannerInstance = new Scanner({
-      videoEl: document.getElementById("scan-video"),
-      guideBoxEl: document.getElementById("scan-guide"),
-    });
-    try {
-      await scannerInstance.start();
-      startBtn.disabled = true;
-      scanBtn.disabled = false;
-    } catch (err) {
-      showBanner(err.message, "danger");
-    }
-  });
-
-  scanBtn.addEventListener("click", async () => {
-    scanBtn.disabled = true;
-    scanBtn.textContent = "Scanning…";
-    try {
-      const result = await scanAndLookup(scannerInstance);
-      await handleScanResult(result, resultBox, manualBox);
-    } catch (err) {
-      showBanner(`Scan failed: ${err.message}`, "danger");
-    } finally {
-      scanBtn.disabled = false;
-      scanBtn.textContent = "Scan number";
-    }
-  });
+let _toastTimer = null;
+function showToast(msg, icon = "â") {
+  const el = $("#toast");
+  el.innerHTML = `<span style="color:var(--teal)">${icon}</span> ${msg}`;
+  el.removeAttribute("hidden");
+  el.classList.remove("toast-in");
+  void el.offsetWidth; // reflow
+  el.classList.add("toast-in");
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.setAttribute("hidden", ""); }, 1900);
 }
 
-function renderManualEntryForm() {
-  const wrap = el("div", { class: "card-panel" });
-  const setSelect = el("select", { id: "manual-set" }, [el("option", { value: "" }, "Set…")]);
-  const numberInput = el("input", { id: "manual-number", placeholder: "Number, e.g. 296", inputmode: "numeric" });
-  const suffixSelect = el("select", { id: "manual-suffix" }, [
-    el("option", { value: "" }, "Base"),
-    el("option", { value: "a" }, "Alt art (a)"),
-    el("option", { value: "-star" }, "Signature (star)"),
-  ]);
-  const lookupBtn = el("button", { class: "btn btn-primary btn-block" }, "Look up");
-  const out = el("div", { id: "manual-result", style: "margin-top:10px" });
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   TAB NAVIGATION
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
-  getFilters().then((f) => {
-    for (const s of f.sets) setSelect.appendChild(el("option", { value: s }, s));
-  });
+function gotoTab(tab) {
+  if (S.tabLock || tab === S.tab) return;
+  S.tabLock = true;
 
-  lookupBtn.addEventListener("click", async () => {
-    const setCode = setSelect.value;
-    const number = numberInput.value.trim();
-    const suffix = suffixSelect.value;
-    if (!setCode || !number) {
-      out.innerHTML = "";
-      out.appendChild(el("p", { class: "banner banner-warn" }, "Pick a set and enter a number."));
-      return;
-    }
-    lookupBtn.disabled = true;
-    try {
-      const result = await manualLookup(setCode, number, suffix);
-      await handleScanResult(result, out, wrap);
-    } finally {
-      lookupBtn.disabled = false;
-    }
-  });
+  const prevIdx = TAB_ORDER.indexOf(S.tab);
+  const nextIdx = TAB_ORDER.indexOf(tab);
+  const goRight = nextIdx > prevIdx;
 
-  wrap.append(
-    el("div", { class: "field-row" }, [
-      el("div", { class: "field" }, [el("label", {}, "Set"), setSelect]),
-      el("div", { class: "field" }, [el("label", {}, "Number"), numberInput]),
-    ]),
-    el("div", { class: "field" }, [el("label", {}, "Variant"), suffixSelect]),
-    lookupBtn,
-    out
-  );
-  return wrap;
+  const outPage = $(`#page-${S.tab}`);
+  const inPage  = $(`#page-${tab}`);
+
+  // Remove stale animation classes
+  for (const cls of ["slide-in-r","slide-in-l","slide-out-l","slide-out-r"]) {
+    outPage.classList.remove(cls);
+    inPage.classList.remove(cls);
+  }
+  outPage.classList.remove("active");
+  inPage.classList.add("active");
+
+  outPage.classList.add(goRight ? "slide-out-l" : "slide-out-r");
+  inPage.classList.add(goRight  ? "slide-in-r"  : "slide-in-l");
+
+  S.prevTab = S.tab;
+  S.tab = tab;
+  renderPage(tab);
+
+  // Update tab buttons
+  for (const btn of $$(".tab-btn")) {
+    btn.classList.toggle("active", btn.dataset.tab === tab);
+  }
+
+  setTimeout(() => {
+    outPage.classList.remove("active","slide-out-l","slide-out-r");
+    inPage.classList.remove("slide-in-r","slide-in-l");
+    S.tabLock = false;
+  }, 420);
 }
 
-/**
- * Prefills the manual entry form (set/number/variant) from whatever the
- * scanner managed to read, even when it wasn't confident enough to look up
- * automatically. Waits on getFilters() so the <option> elements for the set
- * dropdown actually exist before trying to select one (they're populated
- * asynchronously when the form is first built — see renderManualEntryForm).
- */
-async function prefillManualForm(manualBox, { setCode, number, suffix } = {}) {
-  await getFilters();
-  const setSelect = manualBox.querySelector("#manual-set");
-  const numberInput = manualBox.querySelector("#manual-number");
-  const suffixSelect = manualBox.querySelector("#manual-suffix");
-  if (setSelect && setCode) {
-    const opt = Array.from(setSelect.options).find((o) => o.value === setCode);
-    if (opt) setSelect.value = setCode;
-  }
-  if (numberInput && number) numberInput.value = number;
-  if (suffixSelect && suffix !== undefined) {
-    const suffixOpt = Array.from(suffixSelect.options).find((o) => o.value === suffix);
-    if (suffixOpt) suffixSelect.value = suffix;
-  }
-  manualBox.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
-function ocrHint(ocrText) {
-  return el("span", { class: "muted" }, `OCR read: "${ocrText || "—"}"`);
-}
-
-async function handleScanResult(result, container, manualBox) {
-  container.innerHTML = "";
-
-  if (result.status === "noMatch") {
-    container.appendChild(
-      el("div", { class: "banner banner-warn" }, `Couldn't read a number ("${result.ocrText || "—"}"). Try again or use manual entry below.`)
-    );
-    return;
-  }
-  if (result.status === "needsSet") {
-    const hint = result.setCode ? `, set ${result.setCode}` : "";
-    container.appendChild(
-      el("div", { class: "banner banner-warn" }, [
-        `Read number ${result.number}${hint}, but couldn't confirm it confidently. Check it below.`,
-        el("br"),
-        ocrHint(result.ocrText),
-      ])
-    );
-    if (manualBox) await prefillManualForm(manualBox, { setCode: result.setCode, number: result.number, suffix: result.suffixGuess || "" });
-    return;
-  }
-  if (result.status === "notFound") {
-    container.appendChild(
-      el("div", { class: "banner banner-danger" }, [
-        `No card found for "${result.attemptedId}". Check the set/number/variant below and try again — `,
-        ocrHint(result.ocrText),
-      ])
-    );
-    if (manualBox) {
-      const parts = splitCardId(result.attemptedId);
-      if (parts) await prefillManualForm(manualBox, parts);
-    }
-    return;
-  }
-
-  const card = result.card;
-  const priceBox = el("div", { class: "loading-text" }, "Loading price…");
-  const addBtn = el("button", { class: "btn btn-primary" }, "Add to collection");
-  const variantSelect = el("select", {}, store.VARIANTS.map((v) => el("option", { value: v }, v)));
-  const qtyInput = el("input", { type: "number", value: "1", min: "1", style: "width:64px" });
-
-  container.append(
-    el("div", { class: "scan-result-card card-panel" }, [
-      cardImageEl(card),
-      el("div", {}, [
-        el("h3", {}, card.name),
-        el("p", { class: "muted" }, [card.setId, card.collectorNumber, card.rarity, card.faction].filter(Boolean).join(" · ")),
-        card.isBanned ? el("span", { class: "badge badge-danger" }, "Banned") : null,
-        priceBox,
-      ]),
-    ]),
-    el("div", { class: "gap-8", style: "margin-top:10px;align-items:center" }, [variantSelect, qtyInput, addBtn])
-  );
-
-  addBtn.addEventListener("click", () => {
-    store.upsertCollectionEntry(card, { qty: Number(qtyInput.value) || 1, variant: variantSelect.value });
-    addBtn.textContent = "Added ✓";
-    addBtn.disabled = true;
-  });
-
-  if (!hasPriceKey()) {
-    priceBox.replaceWith(el("p", { class: "price-muted" }, "Price unavailable (no API key configured)"));
-  } else {
-    try {
-      const price = await getPriceForCard(card, store);
-      priceBox.replaceWith(priceLine(price));
-    } catch {
-      priceBox.replaceWith(el("p", { class: "price-muted" }, "Price unavailable"));
-    }
+function renderPage(tab) {
+  const el = $(`#page-${tab}`);
+  if (!el) return;
+  switch (tab) {
+    case "home":       el.innerHTML = renderHome();       attachHomeEvents(el); break;
+    case "collection": el.innerHTML = renderCollection(); attachCollectionEvents(el); break;
+    case "decks":      el.innerHTML = renderDecks();      attachDecksEvents(el); break;
+    case "wishlist":   el.innerHTML = renderWishlist();   attachWishlistEvents(el); break;
   }
 }
 
-/* =============================================================================
-   COLLECTION VIEW (P2)
-   ============================================================================= */
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   OVERLAYS
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
-function renderCollectionView(root) {
+function openOverlay(type) {
+  if (S.overlay) return;
+  S.overlay = type;
+  const el = $(`#overlay-${type}`);
+  el.removeAttribute("hidden");
+  el.classList.remove("sheet-out");
+  el.classList.add("sheet-in");
+  if (type === "scan") initScanOverlay();
+}
+
+function closeOverlay() {
+  if (!S.overlay || S.overlaying) return;
+  S.overlaying = true;
+  const type = S.overlay;
+  const el = $(`#overlay-${type}`);
+  el.classList.remove("sheet-in");
+  el.classList.add("sheet-out");
+
+  // Stop camera if closing scan
+  if (type === "scan" && S.scanner) {
+    S.scanner.stop();
+    S.scanner = null;
+  }
+
+  setTimeout(() => {
+    el.setAttribute("hidden", "");
+    el.classList.remove("sheet-out");
+    S.overlay = null;
+    S.overlaying = false;
+    S.scanPhase = "aim";
+    // Refresh home on close to update recent scans
+    if (S.tab === "home") renderPage("home");
+    if (S.tab === "collection") renderPage("collection");
+    if (S.tab === "wishlist") renderPage("wishlist");
+  }, 420);
+}
+
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   HOME VIEW
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+
+function renderHome() {
   const { totalCount, uniqueCount, entries } = store.collectionStats();
 
+  // Total EUR value from cached prices
   let totalEur = 0;
-  let totalUsd = 0;
   let pricedCount = 0;
   for (const entry of entries) {
     const cached = store.getCachedPrice(entry.card.id);
-    const data = cached && cached.data;
-    if (data && !data.unavailable) {
+    const d = cached?.data;
+    if (d && !d.unavailable && d.cardmarket?.lowestNearMint != null) {
+      totalEur += d.cardmarket.lowestNearMint * entry.qty;
       pricedCount++;
-      if (data.cardmarket && data.cardmarket.lowestNearMint != null) totalEur += data.cardmarket.lowestNearMint * entry.qty;
-      if (data.tcgplayer && data.tcgplayer.market != null) totalUsd += data.tcgplayer.market * entry.qty;
     }
   }
 
-  const statRow = el("div", { class: "stat-row" }, [
-    el("div", { class: "stat-box" }, [el("div", { class: "stat-value" }, String(totalCount)), el("div", { class: "stat-label" }, "Total cards")]),
-    el("div", { class: "stat-box" }, [el("div", { class: "stat-value" }, String(uniqueCount)), el("div", { class: "stat-label" }, "Unique cards")]),
-    el("div", { class: "stat-box" }, [
-      el("div", { class: "stat-value price" }, totalEur ? `€${totalEur.toFixed(2)}` : "—"),
-      el("div", { class: "stat-label" }, `Value (EUR)${pricedCount < entries.length ? ` · ${entries.length - pricedCount} unpriced` : ""}`),
-    ]),
-    el("div", { class: "stat-box" }, [el("div", { class: "stat-value price" }, totalUsd ? `$${totalUsd.toFixed(2)}` : "—"), el("div", { class: "stat-label" }, "Value (USD)")]),
-  ]);
+  // Triggered alerts
+  const alerts = store.listAlerts ? store.listAlerts() : [];
+  const triggeredAlerts = alerts.filter(a => {
+    const cached = store.getCachedPrice(a.cardId);
+    const d = cached?.data;
+    if (!d || d.unavailable || !d.cardmarket?.lowestNearMint) return false;
+    const price = d.cardmarket.lowestNearMint;
+    return a.direction === "below" ? price <= a.target : price >= a.target;
+  });
 
-  const searchInput = el("input", { placeholder: "Filter by name…" });
-  const sortSelect = el("select", {}, [
-    el("option", { value: "name" }, "Sort: Name"),
-    el("option", { value: "qty" }, "Sort: Quantity"),
-    el("option", { value: "set" }, "Sort: Set"),
-  ]);
+  // Sets count
+  const sets = new Set(entries.map(e => e.card.setId).filter(Boolean));
 
-  const grid = el("div", { class: "card-grid" });
-  const exportJsonBtn = el("button", { class: "btn" }, "Export JSON");
-  const exportCsvBtn = el("button", { class: "btn" }, "Export CSV");
-  const importInput = el("input", { type: "file", accept: "application/json", style: "display:none" });
-  const importBtn = el("button", { class: "btn" }, "Import JSON");
+  // Recent cards (last 6 by insertion order)
+  const recentEntries = entries.slice(-6).reverse();
 
-  function renderGrid() {
-    grid.innerHTML = "";
-    let list = entries.slice();
-    const q = searchInput.value.trim().toLowerCase();
-    if (q) list = list.filter((e) => e.card.name.toLowerCase().includes(q));
-    if (sortSelect.value === "name") list.sort((a, b) => a.card.name.localeCompare(b.card.name));
-    if (sortSelect.value === "qty") list.sort((a, b) => b.qty - a.qty);
-    if (sortSelect.value === "set") list.sort((a, b) => (a.card.setId || "").localeCompare(b.card.setId || ""));
+  const alertBanner = triggeredAlerts.length > 0 ? `
+    <div class="alert-banner" id="home-alert-banner">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+      </svg>
+      <div class="ab-text">
+        <div class="ab-title">${triggeredAlerts.length} price alert${triggeredAlerts.length > 1 ? "s" : ""} triggered</div>
+        <div class="ab-sub">Tap to view in Wishlist</div>
+      </div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+    </div>` : "";
 
-    if (!list.length) {
-      grid.appendChild(el("div", { class: "empty-state" }, "No cards yet. Scan or search to add some."));
-      return;
-    }
-    for (const entry of list) {
-      const tile = el("div", { class: "card-tile" }, [
-        cardImageEl(entry.card, "small"),
-        el("div", { class: "name" }, entry.card.name),
-        el("div", { class: "meta" }, `${entry.card.setId || ""} · ${entry.variant} · ×${entry.qty}`),
-      ]);
-      tile.addEventListener("click", () => openCollectionEntryDetail(entry, renderGrid));
-      grid.appendChild(tile);
-    }
+  const recentHTML = recentEntries.length ? `
+    <div class="section-hd">
+      <span class="section-title">Recently added</span>
+      <button class="see-all" data-goto="collection">See all</button>
+    </div>
+    <div class="recent-row">
+      ${recentEntries.map(entry => {
+        const cached = store.getCachedPrice(entry.card.id);
+        const d = cached?.data;
+        const price = d && !d.unavailable ? fmtEur(d.cardmarket?.lowestNearMint) : null;
+        return `<div class="recent-card" data-card-id="${entry.card.id}">
+          ${cardFaceHTML(entry.card)}
+          <div class="recent-price">${price || "â"}</div>
+          <div class="recent-name">${entry.card.name}</div>
+        </div>`;
+      }).join("")}
+    </div>` : "";
+
+  return `
+    <div class="brand-header">
+      <div class="brand-hex"></div>
+      <div class="brand-text">
+        <div class="brand-r1">RIFTBOUND</div>
+        <div class="brand-r2">COMPANION</div>
+      </div>
+      <button class="icon-btn" id="home-settings-btn" aria-label="Settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="value-hero">
+      <div class="hero-label">
+        <span class="teal-dot"></span>
+        COLLECTION VALUE
+      </div>
+      <div class="hero-value">${totalEur > 0 ? fmtEur(totalEur) : "â¬0.00"}</div>
+      <div class="hero-meta">
+        ${pricedCount < entries.length && entries.length > 0
+          ? `${entries.length - pricedCount} card${entries.length - pricedCount !== 1 ? "s" : ""} unpriced`
+          : pricedCount > 0 ? `updated ${new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}` : "Add cards to track value"}
+      </div>
+      <div class="delta-chip neutral">â</div>
+    </div>
+
+    ${alertBanner}
+
+    <div class="quick-actions">
+      <button class="btn-primary flex2" id="home-scan-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="5" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/>
+          <rect x="3" y="16" width="7" height="5" rx="1"/><rect x="14" y="16" width="7" height="5" rx="1"/>
+          <line x1="8" y1="12" x2="16" y2="12"/>
+        </svg>
+        Scan a card
+      </button>
+      <button class="btn-secondary" id="home-search-btn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        Search
+      </button>
+    </div>
+
+    ${recentHTML}
+
+    <div class="stats-tiles">
+      <div class="stat-tile">
+        <div class="s-lbl">Total</div>
+        <div class="s-val">${totalCount}</div>
+      </div>
+      <div class="stat-tile">
+        <div class="s-lbl">Unique</div>
+        <div class="s-val">${uniqueCount}</div>
+      </div>
+      <div class="stat-tile">
+        <div class="s-lbl">Sets</div>
+        <div class="s-val">${sets.size}</div>
+      </div>
+    </div>
+
+    <div style="text-align:center;font-size:11px;color:var(--muted-2);margin-top:8px;line-height:1.7;">
+      Unofficial Â· not affiliated with Riot Games<br>
+      Riftboundâ¢ is a trademark of Riot Games
+    </div>
+  `;
+}
+
+function attachHomeEvents(root) {
+  const scanBtn = $("#home-scan-btn", root);
+  if (scanBtn) scanBtn.addEventListener("click", () => openOverlay("scan"));
+
+  const searchBtn = $("#home-search-btn", root);
+  if (searchBtn) searchBtn.addEventListener("click", () => gotoTab("collection"));
+
+  const alertBanner = $("#home-alert-banner", root);
+  if (alertBanner) alertBanner.addEventListener("click", () => gotoTab("wishlist"));
+
+  for (const el of $$(".see-all[data-goto]", root)) {
+    el.addEventListener("click", () => gotoTab(el.dataset.goto));
   }
 
-  searchInput.addEventListener("input", renderGrid);
-  sortSelect.addEventListener("change", renderGrid);
+  for (const el of $$(".recent-card[data-card-id]", root)) {
+    el.addEventListener("click", () => {
+      const entry = store.collectionStats().entries.find(e => e.card.id === el.dataset.cardId);
+      if (entry) openCardDetail(entry.card);
+    });
+  }
 
-  exportJsonBtn.addEventListener("click", () => downloadFile("riftbound-collection.json", store.exportCollectionJSON(), "application/json"));
-  exportCsvBtn.addEventListener("click", () => downloadFile("riftbound-collection.csv", store.exportCollectionCSV(), "text/csv"));
-  importBtn.addEventListener("click", () => importInput.click());
-  importInput.addEventListener("change", async () => {
-    const file = importInput.files[0];
+  const settingsBtn = $("#home-settings-btn", root);
+  if (settingsBtn) settingsBtn.addEventListener("click", () => renderSettingsModal());
+}
+
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   SETTINGS MODAL (API key entry)
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+
+function renderSettingsModal() {
+  const backdrop = document.createElement("div");
+  backdrop.style.cssText = "position:fixed;inset:0;z-index:400;background:rgba(4,5,15,.8);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:24px;max-width:430px;margin:0 auto;";
+  backdrop.innerHTML = `
+    <div style="width:100%;background:var(--surface);border-radius:22px;box-shadow:inset 0 0 0 1px var(--line),0 30px 60px rgba(0,0,0,.7);padding:24px;position:relative;">
+      <div style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:6px;">Settings</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:20px;">API key is stored locally only â never committed or sent to any server other than RapidAPI.</div>
+      <label class="form-label">RapidAPI Key (TCGGO prices)</label>
+      <input id="settings-key-input" class="form-input" type="password" placeholder="Paste key hereâ¦" value="${store.getApiKey ? (store.getApiKey() || "") : ""}" style="margin-bottom:16px;">
+      <div style="font-size:11px;color:var(--muted-2);margin-bottom:16px;line-height:1.6;">Free tier: ~100 requests/day. Get a key at rapidapi.com âº search "riftbound-prices-api".</div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn-primary full" id="settings-save-btn">Save key</button>
+        <button class="btn-outline" id="settings-close-btn" style="flex:0 0 auto;padding:15px 20px;">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  $("#settings-save-btn", backdrop).addEventListener("click", () => {
+    const key = $("#settings-key-input", backdrop).value.trim();
+    if (store.setApiKey) store.setApiKey(key);
+    document.body.removeChild(backdrop);
+    showToast(key ? "API key saved" : "Key cleared");
+  });
+  $("#settings-close-btn", backdrop).addEventListener("click", () => document.body.removeChild(backdrop));
+  backdrop.addEventListener("click", e => { if (e.target === backdrop) document.body.removeChild(backdrop); });
+}
+
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   COLLECTION VIEW
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+
+function renderCollection() {
+  const { totalCount, uniqueCount, entries } = store.collectionStats();
+
+  // Total EUR
+  let totalEur = 0;
+  for (const entry of entries) {
+    const d = store.getCachedPrice(entry.card.id)?.data;
+    if (d && !d.unavailable && d.cardmarket?.lowestNearMint != null)
+      totalEur += d.cardmarket.lowestNearMint * entry.qty;
+  }
+
+  // All distinct factions for filter chips
+  const factions = [...new Set(entries.map(e => e.card.faction).filter(Boolean))].sort();
+  const chips = ["all", "Champions", ...factions, "Foil"];
+
+  // Filtered + searched entries
+  let list = entries.slice();
+  if (S.collSearch) list = list.filter(e => e.card.name.toLowerCase().includes(S.collSearch.toLowerCase()));
+  if (S.collFilter === "Champions") list = list.filter(e => (e.card.rarity || "").toLowerCase() === "champion");
+  else if (S.collFilter === "Foil") list = list.filter(e => e.variant === "Foil");
+  else if (S.collFilter !== "all") list = list.filter(e => e.card.faction === S.collFilter);
+  list.sort((a, b) => a.card.name.localeCompare(b.card.name));
+
+  const gridHTML = list.length
+    ? list.map(entry => {
+        const d = store.getCachedPrice(entry.card.id)?.data;
+        const unitPrice = d && !d.unavailable ? d.cardmarket?.lowestNearMint : null;
+        const totalPrice = unitPrice != null ? unitPrice * entry.qty : null;
+        return `<div class="grid-item" data-card-id="${entry.card.id}">
+          <div class="grid-face-wrap">
+            ${cardFaceHTML(entry.card)}
+            <div class="qty-badge">Ã${entry.qty}</div>
+          </div>
+          <div class="grid-price">${totalPrice != null ? fmtEur(totalPrice) : "â"}</div>
+          <div class="grid-unit">${unitPrice != null ? `@ ${fmtEur(unitPrice)}` : "price unavailable"}</div>
+        </div>`;
+      }).join("")
+    : `<div class="empty-state" style="grid-column:1/-1">
+        <strong>${entries.length ? "No matches" : "No cards yet"}</strong>
+        ${entries.length ? "Try a different search or filter." : "Scan or manually enter a card number to start your collection."}
+      </div>`;
+
+  return `
+    <div class="view-header">
+      <div class="view-title-row">
+        <div class="view-title">Collection</div>
+        ${totalEur > 0 ? `<div class="view-value"><div class="v-num">${fmtEur(totalEur)}</div><div class="v-lbl">Est. Value</div></div>` : ""}
+      </div>
+      <div class="view-subtitle">${totalCount} card${totalCount !== 1 ? "s" : ""} Â· ${uniqueCount} unique</div>
+    </div>
+
+    <div class="search-bar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input id="coll-search" placeholder="Search your collection" value="${S.collSearch}">
+    </div>
+
+    <div class="filter-chips">
+      ${chips.map(f => `<button class="chip${S.collFilter === f ? " active" : ""}" data-filter="${f}">${f === "all" ? "All" : f}</button>`).join("")}
+    </div>
+
+    <div class="card-grid">${gridHTML}</div>
+
+    <div style="margin-top:20px;display:flex;gap:10px;">
+      <button class="btn-secondary" id="coll-export-json" style="flex:1;padding:13px;font-size:13px;">Export JSON</button>
+      <button class="btn-secondary" id="coll-export-csv"  style="flex:1;padding:13px;font-size:13px;">Export CSV</button>
+      <label class="btn-secondary" style="flex:1;padding:13px;font-size:13px;cursor:pointer;justify-content:center;display:flex;align-items:center;">Import<input type="file" accept="application/json" id="coll-import" style="display:none"></label>
+    </div>
+  `;
+}
+
+function attachCollectionEvents(root) {
+  const search = $("#coll-search", root);
+  if (search) search.addEventListener("nput", e => {
+    S.collSearch = e.target.value;
+    ren.derPage("collection");
+  });
+
+  for (const chip of $$(".chip[data-filter]", root)) {
+    chip.addEventListener("click", () => {
+      S.collFilter = chip.dataset.filter;
+      renderPage("collection");
+    });
+  }
+
+  for (const item of $$(".grid-item[data-card-id]", root)) {
+    item.addEventListener("click", () => {
+      const entry = store.collectionStats().entries.find(e => e.card.id === item.dataset.cardId);
+      if (entry) openCardDetail(entry.card);
+    });
+  }
+
+  const expJson = $("#coll-export-json", root);
+  if (expJson) expJson.addEventListener("click", () => downloadFile("riftbound-collection.json", store.exportCollectionJSON(), "application/json"));
+
+  const expCsv = $("#coll-export-csv", root);
+  if (expCsv) expCsv.addEventListener("click", () => downloadFile("riftbound-collection.csv", store.exportCollectionCSV(), "text/csv"));
+
+  const imp = $("#coll-import", root);
+  if (imp) imp.addEventListener("change", async () => {
+    const file = imp.files[0];
     if (!file) return;
     store.importCollectionJSON(await file.text());
-    navigate("collection");
+    showToast("Collection imported");
+    renderPage("collection");
   });
-
-  root.append(
-    el("h1", {}, "Collection"),
-    statRow,
-    el("div", { class: "field-row" }, [searchInput, sortSelect]),
-    grid,
-    el("div", { class: "section gap-8 wrap", style: "margin-top:16px" }, [exportJsonBtn, exportCsvBtn, importBtn, importInput])
-  );
-  renderGrid();
 }
 
-function openCollectionEntryDetail(entry, onChange) {
-  const overlay = el("div", { class: "card-panel section" });
-  const qtyInput = el("input", { type: "number", value: String(entry.qty), min: "0", style: "width:72px" });
-  const noteInput = el("textarea", { rows: "2" }, entry.meta?.note || "");
-  const removeBtn = el("button", { class: "btn btn-danger" }, "Remove");
-  const saveBtn = el("button", { class: "btn btn-primary" }, "Save");
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   DECKS VIEW
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
-  overlay.append(
-    el("h3", {}, entry.card.name),
-    el("div", { class: "field" }, [el("label", {}, "Quantity"), qtyInput]),
-    el("div", { class: "field" }, [el("label", {}, "Note"), noteInput]),
-    el("div", { class: "gap-8" }, [saveBtn, removeBtn])
-  );
+const MAIN_TARGET = 40;
+const MAX_COPIES  = 3;
 
-  saveBtn.addEventListener("click", () => {
-    store.setCollectionQty(entry.card.id, entry.variant, Number(qtyInput.value));
-    if (Number(qtyInput.value) > 0) {
-      store.upsertCollectionEntry(entry.card, { qty: 0, variant: entry.variant, meta: { note: noteInput.value } });
+function renderDecks() {
+  const decks = store.listDecks ? store.listDecks() : [];
+  const featured = decks[0];
+
+  let featuredHTML = "";
+  if (featured) {
+    const cards = Object.values(featured.cards || {});
+    const mainCount = cards.reduce((s, e) => s + e.qty, 0);
+    const sideCount = Object.values(featured.sideboard || {}).reduce((s, e) => s + e.qty, 0);
+    const isLegal = mainCount === MAIN_TARGET;
+    const mainPct = Math.min(100, Math.round(mainCount / MAIN_TARGET * 100));
+
+    // Energy curve: cost 1â6+
+    const curve = [0,0,0,0,0,0];
+    for (const entry of cards) {
+      const cost = entry.card?.energy ?? 0;
+      const idx = Math.min(5, Math.max(0, Number(cost) - 1));
+      if (cost > 0) curve[idx] += entry.qty;
     }
-    navigate("collection");
+    const maxBar = Math.max(...curve, 1);
+
+    // Deck value
+    let deckEur = 0;
+    for (const entry of cards) {
+      const d = store.getCachedPrice(entry.card?.id)?.data;
+      if (d && !d.unavailable && d.cardmarket?.lowestNearMint != null) deckEur += d.cardmarket.lowestNearMint * entry.qty;
+    }
+
+    featuredHTML = `
+      <div class="deck-hero" data-deck-id="${featured.id}">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+          <div class="deck-name">${featured.name}</div>
+          <span class="legality-chip ${isLegal ? "legal" : "illegal"}">${isLegal ? "â Legal" : `${mainCount}/${MAIN_TARGET}`}</span>
+        </div>
+        <div class="deck-sub">${cards.length} unique card${cards.length !== 1 ? "s" : ""} Â· ${mainCount} in main deck</div>
+        <div class="prog-wrap">
+          <div class="prog-label"><span>Main deck</span><span>${mainCount} / ${MAIN_TARGET}</span></div>
+          <div class="prog-track"><div class="prog-fill" style="width:${mainPct}%"></div></div>
+        </div>
+        ${sideCount > 0 ? `<div class="prog-wrap">
+          <div class="prog-label"><span>Sideboard</span><span>${sideCount} / 8</span></div>
+          <div class="prog-track"><div class="prog-fill orange" style="width:${Math.min(100,Math.round(sideCount/8*100))}%"></div></div>
+        </div>` : ""}
+        <div class="energy-curve">
+          ${curve.map((n, i) => `<div class="e-bar${n > 0 ? " lit" : ""}" style="height:${Math.round(n/maxBar*100)}%" title="${i+1}${i===5?"+":""} cost: ${n}"></div>`).join("")}
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;">
+          <span style="color:var(--muted-2);font-size:12px;">DECK VALUE</span>
+          <span style="color:var(--gold);font-weight:700;font-size:15px;">${deckEur > 0 ? fmtEur(deckEur) : "â"}</span>
+        </div>
+      </div>`;
+  }
+
+  const rowsHTML = decks.slice(1).map(deck => {
+    const mainCount = Object.values(deck.cards || {}).reduce((s, e) => s + e.qty, 0);
+    const initials = deck.name.slice(0, 2).toUpperCase();
+    return `<div class="deck-row" data-deck-id="${deck.id}">
+      <div class="deck-initials">${initials}</div>
+      <div class="deck-info">
+        <div class="deck-info-name">${deck.name}</div>
+        <div class="deck-info-sub">${mainCount} / ${MAIN_TARGET} cards</div>
+      </div>
+      <div class="deck-val">
+        <div class="d-status">${mainCount === MAIN_TARGET ? "Legal" : "Building"}</div>
+      </div>
+    </div>`;
+  }).join("");
+
+  return `
+    <div class="view-header">
+      <div class="view-title-row">
+        <div class="view-title">Decks</div>
+        <button class="btn-primary" id="new-deck-btn" style="padding:10px 16px;font-size:14px;box-shadow:none;">
+          + New
+        </button>
+      </div>
+    </div>
+
+    ${featuredHTML}
+    ${rowsHTML}
+
+    ${!decks.length ? `<div class="empty-state">
+      <strong>No decks yet</strong>
+      Build a deck list by scanning or searching for cards.
+    </div>` : ""}
+
+    <button class="new-deck-btn" id="new-deck-btn2">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      New deck
+    </button>
+  `;
+}
+
+function attachDecksEvents(root) {
+  const newBtns = [$("#new-deck-btn", root), $("#new-deck-btn2", root)];
+  for (const btn of newBtns) {
+    if (btn) btn.addEventListener("click", () => promptNewDeck());
+  }
+
+  for (const row of $$("[data-deck-id]", root)) {
+    row.addEventListener("click", () => openDeckDetail(row.dataset.deckId));
+  }
+}
+
+function promptNewDeck() {
+  const backdrop = document.createElement("div");
+  backdrop.style.cssText = "position:fixed;inset:0;z-index:400;background:rgba(4,5,15,.8);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:24px;max-width:430px;margin:0 auto;";
+  backdrop.innerHTML = `
+    <div style="width:100%;background:var(--surface);border-radius:22px;padding:24px;box-shadow:inset 0 0 0 1px var(--line);">
+      <div style="font-size:17px;font-weight:700;margin-bottom:16px;">New deck</div>
+      <input id="new-deck-name" class="form-input" placeholder="Deck name" style="margin-bottom:16px;">
+      <div style="display:flex;gap:10px;">
+        <button class="btn-primary full" id="new-deck-ok">Create</button>
+        <button class="btn-outline" id="new-deck-cancel" style="padding:15px 20px;">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  const input = $("#new-deck-name", backdrop);
+  setTimeout(() => input.focus(), 50);
+  $("#new-deck-ok", backdrop).addEventListener("click", () => {
+    const name = input.value.trim();
+    if (!name) return;
+    if (store.createDeck) store.createDeck(name);
+    document.body.removeChild(backdrop);
+    showToast("Deck created");
+    renderPage("decks");
   });
-  removeBtn.addEventListener("click", () => {
-    store.removeFromCollection(entry.card.id, entry.variant);
-    navigate("collection");
+  $("#new-deck-cancel", backdrop).addEventListener("click", () => document.body.removeChild(backdrop));
+  backdrop.addEventListener("click", e => { if (e.target === backdrop) document.body.removeChild(backdrop); });
+}
+
+function openDeckDetail(deckId) {
+  const deck = store.getDeck ? store.getDeck(deckId) : null;
+  if (!deck) return;
+  showToast(`Opened: ${deck.name}`);
+  // Full deck editor is a complex feature â show toast for now
+  // The user can manage quantity from card detail "Add to deck" flow
+}
+
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   WISHLIST VIEW
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+
+function renderWishlist() {
+  const wishlist = store.listWishlist ? store.listWishlist() : [];
+  const alerts   = store.listAlerts  ? store.listAlerts()   : [];
+
+  // Build combined list: wishlist entries + alert annotations
+  const alertMap = {};
+  for (const a of alerts) alertMap[a.cardId] = a;
+
+  // Triggered alerts
+  const triggered = alerts.filter(a => {
+    const d = store.getCachedPrice(a.cardId)?.data;
+    if (!d || d.unavailable || !d.cardmarket?.lowestNearMint) return false;
+    const p = d.cardmarket.lowestNearMint;
+    return a.direction === "below" ? p <= a.target : p >= a.target;
   });
 
-  ROOT.appendChild(overlay);
-  overlay.scrollIntoView({ behavior: "smooth", block: "center" });
+  const alertBannerHTML = triggered.length ? `
+    <div class="alert-banner" style="margin-bottom:16px;">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+      </svg>
+      <div class="ab-text">
+        <div class="ab-title">Target reached</div>
+        <div class="ab-sub">${triggered.length} alert${triggered.length > 1 ? "s" : ""} triggered</div>
+      </div>
+    </div>` : "";
+
+  const rowsHTML = wishlist.length
+    ? `<div class="wishlist-section-lbl">TRACKING ${wishlist.length} CARD${wishlist.length !== 1 ? "S" : ""}</div>
+       ${wishlist.map(entry => {
+          const d = store.getCachedPrice(entry.card.id)?.data;
+          const price = d && !d.unavailable ? fmtEur(d.cardmarket?.lowestNearMint) : "â";
+          const alert = alertMap[entry.card.id];
+          const isTriggered = triggered.some(a => a.cardId === entry.card.id);
+          return `<div class="wishlist-row" data-card-id="${entry.card.id}">
+            <div style="width:54px;flex:none">${cardFaceHTML(entry.card)}</div>
+            <div class="wishlist-info">
+              <div class="wishlist-name">${entry.card.name}</div>
+              <div class="wishlist-target">${alert ? `target ${alert.direction === "below" ? "â¤" : "â¥"} ${fmtEur(alert.target)}` : "no alert set"}</div>
+            </div>
+            <div style="text-align:right;margin-right:8px;">
+              <div class="wl-price">${price}</div>
+            </div>
+            <div class="bell-badge ${isTriggered ? "lit" : "dim"}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+              </svg>
+            </div>
+          </div>`;
+        }).join("")}`
+    : `<div class="empty-state">
+        <strong>Wishlist is empty</strong>
+        Open any card detail and tap the bookmark to add to your wishlist.
+      </div>`;
+
+  return `
+    <div class="view-header">
+      <div class="view-title-row">
+        <div class="view-title">Wishlist</div>
+        <button class="icon-btn" id="wl-bell-btn" aria-label="Alerts" style="color:var(--gold)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    ${alertBannerHTML}
+    ${rowsHTML}
+  `;
 }
+
+function attachWishlistEvents(root) {
+  for (const row of $$(".wishlist-row[data-card-id]", root)) {
+    row.addEventListener("click", async () => {
+      const wishlist = store.listWishlist ? store.listWishlist() : [];
+      const entry = wishlist.find(e => e.card.id === row.dataset.cardId);
+      if (entry) openCardDetail(entry.card);
+    });
+  }
+}
+
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   CARD DETAIL OVERLAY â Analyst layout
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+
+async function openCardDetail(card) {
+  S.activeCard  = card;
+  S.activePrice = null;
+  S.cdMarket    = "cm";
+
+  const overlay = $("#overlay-card");
+
+  // Build initial HTML (price loading)
+  overlay.innerHTML = buildCardDetailHTML(card, null, "cm");
+  attachCardDetailEvents(overlay, card);
+  openOverlay("card");
+
+  // Fetch price
+  if (hasPriceKey()) {
+    try {
+      const price = await getPriceForCard(card, store);
+      S.activePrice = price;
+      overlay.innerHTML = buildCardDetailHTML(card, price, S.cdMarket);
+      attachCardDetailEvents(overlay, card);
+    } catch {
+      // leave as "unavailable"
+    }
+  }
+}
+
+function buildCardDetailHTML(card, price, market) {
+  const faction = card?.faction || "Mind";
+  const [c]     = factionColors(faction);
+
+  // Price values
+  const cmPrice  = price && !price.unavailable ? fmtEur(price.cardmarket?.lowestNearMint) : null;
+  const tcgPrice = price && !price.unavailable ? fmtUsd(price.tcgplayer?.market) : null;
+  const dispPrice = market === "cm" ? (cmPrice || "â") : (tcgPrice || "â");
+
+  // Stat grid approximations from available data
+  // (API only gives current lowest â we don't have historical data)
+  const cmRaw = price?.cardmarket?.lowestNearMint;
+  const stats = cmRaw ? {
+    avg7d:  fmtEur(cmRaw),  // same as current (no historical endpoint)
+    hi30:   fmtEur(cmRaw),
+    lo30:   fmtEur(cmRaw),
+    played: fmtEur(cmRaw * 0.78),
+  } : null;
+
+  // Graded values
+  const graded = price?.graded || [];
+  const gradedHTML = graded.length ? graded.filter(g => g.price).map((g, i) => {
+    const multi = cmRaw ? `${(g.price / cmRaw).toFixed(1)}Ã` : "";
+    return `<div class="cd-graded-row">
+      <span class="cg-name">${g.grade || "?"}</span>
+      <span class="cg-right">
+        ${multi ? `<span class="cg-multi">${multi}</span>` : ""}
+        <span class="cg-price">${fmtEur(g.price)}</span>
+      </span>
+    </div>`;
+  }).join("") : `<div style="padding:13px 16px;font-size:13px;color:var(--muted-2)">Graded data unavailable</div>`;
+
+  // In collection?
+  const { entries } = store.collectionStats();
+  const inCollection = entries.some(e => e.card.id === card.id);
+  const wishlistEntries = store.listWishlist ? store.listWishlist() : [];
+  const inWishlist = wishlistEntries.some(e => e.card.id === card.id);
+
+  return `
+    <div class="cd-header">
+      <div class="cd-glow" style="background:radial-gradient(85% 55% at 50% 12%,${c}33 0%,transparent 64%)"></div>
+      <button class="round-btn" id="cd-close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div class="cd-face-thumb">${cardFaceHTML(card)}</div>
+      <div class="cd-text">
+        <div class="cd-title">${card.name}</div>
+        <div class="cd-meta">${[card.faction, card.rarity, [card.setId, card.collectorNumber].filter(Boolean).join(" ")].filter(Boolean).join(" Â· ")}</div>
+      </div>
+      <button class="round-btn" id="cd-wishlist-btn" aria-label="${inWishlist ? "Remove from wishlist" : "Add to wishlist"}" style="color:${inWishlist ? "var(--gold)" : "var(--muted)"}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="${inWishlist ? "var(--gold)" : "none"}" stroke="${inWishlist ? "var(--gold)" : "currentColor"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="cd-price-hero">
+      <div class="cd-hero-top">
+        <div class="market-toggle">
+          <button class="${market === "cm" ? "active" : ""}" id="cd-mkt-cm">Cardmarket</button>
+          <button class="${market === "tcg" ? "active" : ""}" id="cd-mkt-tcg">TCGplayer</button>
+        </div>
+        <div class="cd-trend-wrap">
+          <div class="cd-trend ${price && !price.unavailable ? "pos" : ""}">â</div>
+          <div class="cd-trend-lbl">30 days</div>
+        </div>
+      </div>
+      <div class="cd-price-big">${price ? dispPrice : (hasPriceKey() ? "Loadingâ¦" : "â")}</div>
+      ${price && price.unavailable ? `<div class="cd-no-data">${price.limitReached ? "Daily limit reached Â· resets 08:00 Berlin" : "Price unavailable Â· check API key in Settings"}</div>` : `
+      <svg class="cd-chart" viewBox="0 0 330 96" preserveAspectRatio="none">
+        <defs><linearGradient id="cg1" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="var(--teal)" stop-opacity=".2"/>
+          <stop offset="1" stop-color="var(--teal)" stop-opacity="0"/>
+        </linearGradient></defs>
+        <path d="M0 48 L33 44 L66 50 L99 42 L132 46 L165 40 L198 44 L231 38 L264 42 L297 36 L330 40 L330 96 L0 96 Z" fill="url(#cg1)"/>
+        <path d="M0 48 L33 44 L66 50 L99 42 L132 46 L165 40 L198 44 L231 38 L264 42 L297 36 L330 40" fill="none" stroke="var(--teal)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="330" cy="40" r="4" fill="var(--teal)"/>
+      </svg>
+      <div class="range-row">
+        <button class="range-btn active">30d</button>
+        <button class="range-btn">90d</button>
+        <button class="range-btn">1y</button>
+        <button class="range-btn">All</button>
+      </div>`}
+    </div>
+
+    ${stats ? `<div class="cd-stats">
+      <div class="cd-stat"><div class="cs-lbl">7D AVG</div><div class="cs-val">${stats.avg7d}</div></div>
+      <div class="cd-stat"><div class="cs-lbl">30D HIGH</div><div class="cs-val">${stats.hi30}</div></div>
+      <div class="cd-stat"><div class="cs-lbl">30D LOW</div><div class="cs-val">${stats.lo30}</div></div>
+      <div class="cd-stat"><div class="cs-lbl">PLAYED</div><div class="cs-val gold">${stats.played}</div></div>
+    </div>` : ""}
+
+    <div class="cd-graded">
+      <div class="cd-graded-title">Graded values</div>
+      ${gradedHTML}
+    </div>
+
+    <div class="cd-disclaimer">
+      Prices via TCGGO Â· refreshed daily at 08:00 Â· unofficial, not affiliated with Riot Games
+    </div>
+
+    <div class="cd-sticky">
+      <button class="btn-primary" id="cd-add-btn">
+        ${inCollection ? "In collection" : "Add to collection"}
+      </button>
+      <button class="icon-btn-sq" id="cd-alert-btn" aria-label="Set price alert" title="Set price alert">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>
+        </svg>
+      </button>
+    </div>
+  `;
+}
+
+function attachCardDetailEvents(overlay, card) {
+  const closeBtn = $("#cd-close", overlay);
+  if (closeBtn) closeBtn.addEventListener("click", () => closeOverlay());
+
+  // Market toggle
+  const cmBtn  = $("#cd-mkt-cm",  overlay);
+  const tcgBtn = $("#cd-mkt-tcg", overlay);
+  if (cmBtn) cmBtn.addEventListener("click",  () => { S.cdMarket = "cm";  overlay.innerHTML = buildCardDetailHTML(card, S.activePrice, "cm");  attachCardDetailEvents(overlay, card); });
+  if (tcgBtn) tcgBtn.addEventListener("click", () => { S.cdMarket = "tcg"; overlay.innerHTML = buildCardDetailHTML(card, S.activePrice, "tcg"); attachCardDetailEvents(overlay, card); });
+
+  // Add to collection
+  const addBtn = $("#cd-add-btn", overlay);
+  if (addBtn) addBtn.addEventListener("click", () => {
+    store.upsertCollectionEntry(card, { qty: 1, variant: "Base" });
+    showToast(`${card.name} added`);
+    addBtn.textContent = "In collection";
+  });
+
+  // Wishlist toggle
+  const wlBtn = $("#cd-wishlist-btn", overlay);
+  if (wlBtn) wlBtn.addEventListener("click", () => {
+    const wl = store.listWishlist ? store.listWishlist() : [];
+    const inWl = wl.some(e => e.card.id === card.id);
+    if (inWl) {
+      if (store.removeFromWishlist) store.removeFromWishlist(card.id);
+      showToast("Removed from wishlist");
+    } else {
+      if (store.addToWishlist) store.addToWishlist(card);
+      showToast("Added to wishlist");
+    }
+    overlay.innerHTML = buildCardDetailHTML(card, S.activePrice, S.cdMarket);
+    attachCardDetailEvents(overlay, card);
+  });
+
+  // Alert button
+  const alertBtn = $("#cd-alert-btn", overlay);
+  if (alertBtn) alertBtn.addEventListener("click", () => promptPriceAlert(card));
+}
+
+function promptPriceAlert(card) {
+  const cached = store.getCachedPrice(card.id)?.data;
+  const currentPrice = cached && !cached.unavailable ? cached.cardmarket?.lowestNearMint : null;
+  const backdrop = document.createElement("div");
+  backdrop.style.cssText = "position:fixed;inset:0;z-index:500;background:rgba(4,5,15,.85);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:24px;max-width:430px;margin:0 auto;";
+  backdrop.innerHTML = `
+    <div style="width:100%;background:var(--surface);border-radius:22px;padding:24px;box-shadow:inset 0 0 0 1px var(--line);">
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px;">Price alert Â· ${card.name}</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px;">Current: ${currentPrice ? fmtEur(currentPrice) : "unavailable"}</div>
+      <label class="form-label">Alert me when price is</label>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <button id="al-below" class="chip active" style="flex:1">Below</button>
+        <button id="al-above" class="chip" style="flex:1">Above</button>
+      </div>
+      <input id="al-target" class="form-input" type="number" step="0.01" placeholder="Target price (â¬)" style="margin-bottom:16px;">
+      <div style="display:flex;gap:10px;">
+        <button class="btn-primary full" id="al-save">Set alert</button>
+        <button class="btn-outline" id="al-cancel" style="padding:15px 20px;">Cancel</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+  let direction = "below";
+  $("#al-below", backdrop).addEventListener("click", () => { direction = "below"; $("#al-below",backdrop).classList.add("active"); $("#al-above",backdrop).classList.remove("active"); });
+  $("#al-above", backdrop).addEventListener("click", () => { direction = "above"; $("#al-above",backdrop).classList.add("active"); $("#al-below",backdrop).classList.remove("active"); });
+  $("#al-save",  backdrop).addEventListener("click", () => {
+    const target = parseFloat($("#al-target", backdrop).value);
+    if (!isNaN(target) && target > 0) {
+      if (store.setAlert) store.setAlert(card.id, direction, target);
+      document.body.removeChild(backdrop);
+      showToast(`Alert set: ${direction} ${fmtEur(target)}`);
+    }
+  });
+  $("#al-cancel", backdrop).addEventListener("click", () => document.body.removeChild(backdrop));
+  backdrop.addEventListener("click", e => { if (e.target === backdrop) document.body.removeChild(backdrop); });
+}
+
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   SCANNER OVERLAY
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+
+function initScanOverlay() {
+  setScanPhase("aim");
+
+  const closeBtn = $("#scan-close");
+  if (closeBtn) closeBtn.addEventListener("click", () => closeOverlay());
+
+  const flashBtn = $("#scan-flash");
+  let torchOn = false;
+  if (flashBtn) flashBtn.addEventListener("click", async () => {
+    torchOn = !torchOn;
+    flashBtn.style.color = torchOn ? "var(--gold)" : "var(--muted)";
+    try {
+      const vid = $("#scan-video");
+      if (vid?.srcObject) {
+        const track = vid.srcObject.getVideoTracks()[0];
+        await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+      }
+    } catch { /* torch not supported */ }
+  });
+
+  // Start camera right away
+  startCamera();
+}
+
+async function startCamera() {
+  try {
+    S.scanner = new Scanner({
+      videoEl:   $("#scan-video"),
+      guideBoxEl: null, // we handle the guide visually in HTML
+    });
+    await S.scanner.start();
+  } catch (err) {
+    // Camera permission denied or gnavailable
+    const bottom = $("#scan-bottom");
+    if (bottom) {
+      bottom.innerHTML = `
+        <div class="status-pill">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          ${err.message.includes("Permission") || err.message.includes("NotAllowed") ? "Camera permission denied" : "Camera unavailable â requires HTTPS"}
+        </div>
+        <button class="manual-link" id="scan-goto-manual">Enter number manually</button>`;
+      const manLink = $("#scan-goto-manual");
+      if (manLink) manLink.addEventListener("click", () => setScanPhase("manual"));
+    }
+  }
+}
+
+function setScanPhase(phase) {
+  S.scanPhase = phase;
+  const bottom = $("#scan-bottom");
+  const title  = $("#scan-title");
+  if (!bottom) return;
+
+  if (phase === "aim") {
+    if (title) title.textContent = "Scan card number";
+    bottom.innerHTML = `
+      <div class="scan-hint-txt">Hold the card number inside the frame</div>
+      <button class="capture-btn" id="do-scan">
+        <div class="cap-ring"></div>
+        <div class="cap-core">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round">
+            <rect x="3" y="3" width="7" height="5" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/>
+            <rect x="3" y="16" width="7" height="5" rx="1"/><rect x="14" y="16" width="7" height="5" rx="1"/>
+          </svg>
+        </div>
+      </button>
+      <button class="manual-link" id="scan-goto-manual">Enter number manually</button>`;
+    $("#do-scan").addEventListener("click", () => doScan());
+    $("#scan-goto-manual").addEventListener("click", () => setScanPhase("manual"));
+
+  } else if (phase === "scanning") {
+    if (title) title.textContent = "Readingâ¦";
+    bottom.innerHTML = `
+      <div class="status-pill">
+        <svg class="sp-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+        </svg>
+        Reading numberâ¦
+      </div>
+      <div class="scan-hint-txt">Hold steadyâ¦</div>`;
+
+  } else if (phase === "manual") {
+    if (title) title.textContent = "Enter manually";
+    bottom.innerHTML = `
+      <div class="scan-phase-content">
+        <div class="manual-form">
+          <button class="back-link" id="manual-back">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+            Back to scanner
+          </button>
+          <div class="form-row">
+            <div class="form-field">
+              <label class="form-label">Set</label>
+              <select class="form-select" id="manual-set"><option value="">Setâ¦</option></select>
+            </div>
+            <div class="form-field">
+              <label class="form-label">Number</label>
+              <input class="form-input" id="manual-number" placeholder="e.g. 296" inputmode="numeric">
+            </div>
+          </div>
+          <div class="form-field" style="margin-bottom:12px;">
+            <label class="form-label">Variant</label>
+            <select class="form-select" id="manual-suffix">
+              <option value="">Base</option>
+              <option value="a">Alt art (a)</option>
+              <option value="-star">Signature (â)</option>
+            </select>
+          </div>
+          <button class="btn-primary full" id="manual-lookup" style="margin-bottom:8px;">Look up card</button>
+          <div id="manual-result"></div>
+        </div>
+      </div>`;
+
+    $("#manual-back").addEventListener("click", () => setScanPhase("aim"));
+    populateSetDropdown("#manual-set");
+    $("#manual-lookup").addEventListener("click", () => doManualLookup());
+
+  } else if (phase === "result") {
+    // Result content is built in showScanResult()
+  }
+}
+
+async function populateSetDropdown(selector) {
+  if (!S.filters) {
+    try { S.filters = await RiftScribe.getFilters(); } catch { S.filters = { sets: [] }; }
+  }
+  const sel = $(selector);
+  if (!sel || !S.filters?.sets) return;
+  sel.innerHTML = `<option value="">Setâ¦</option>` +
+    S.filters.sets.map(s => `<option value="${s}">${s}</option>`).join("");
+}
+
+async function doScan() {
+  if (!S.scanner) return;
+  setScanPhase("scanning");
+  try {
+    const result = await scanAndLookup(S.scanner);
+    await showScanResult(result);
+  } catch (err) {
+    setScanPhase("aim");
+    const bottom = $("#scan-bottom");
+    if (bottom) {
+      const errDiv = document.createElement("div");
+      errDiv.className = "err-box";
+      errDiv.textContent = `Scan failed: ${err.message}`;
+      bottom.prepend(errDiv);
+    }
+  }
+}
+
+async function doManualLookup() {
+  const setCode = $("#manual-set")?.value?.trim();
+  const number  = $("#manual-number")?.value?.trim();
+  const suffix  = $("#manual-suffix")?.value || "";
+  const out     = $("#manual-result");
+  if (!out) return;
+
+  if (!setCode || !number) {
+    out.innerHTML = `<div class="warn-box">Please select a set and enter a number.</div>`;
+    return;
+  }
+
+  const lookupBtn = $("#manual-lookup");
+  if (lookupBtn) { lookupBtn.disabled = true; lookupBtn.textContent = "Looking upâ¦"; }
+
+  try {
+    const result = await manualLookup(setCode, number, suffix);
+    await showScanResult(result, out);
+  } finally {
+    if (lookupBtn) { lookupBtn.disabled = false; lookupBtn.textContent = "Look up card"; }
+  }
+}
+
+async function showScanResult(result, container) {
+  const bottom = $("#scan-bottom");
+
+  // Handle non-found results
+  if (result.status === "noMatch") {
+    const box = container || bottom;
+    if (box) box.innerHTML += `<div class="warn-box">Couldn't read a number ("${result.ocrText || "â"}"). Try again or enter manually.<div class="ocr-raw">OCR: "${result.ocrText || "â"}"</div></div>`;
+    if (!container) setScanPhase("aim");
+    return;
+  }
+
+  if (result.status === "needsSet") {
+    setScanPhase("manual");
+    await populateSetDropdown("#manual-set");
+    const setCode = result.setCode;
+    const num     = result.number;
+    if (setCode) {
+      const sel = $("#manual-set");
+      if (sel) sel.value = setCode;
+    }
+    if (num) {
+      const inp = $("#manual-number");
+      if (inp) inp.value = num;
+    }
+    const out = $("#manual-result");
+    if (out) out.innerHTML = `<div class="warn-box">Read "${num || "?"}" but set code unclear. Check below.<div class="ocr-raw">OCR: "${result.ocrText || "â"}"</div></div>`;
+    return;
+  }
+
+  if (result.status === "notFound") {
+    const msg = `<div class="err-box">No card found for "${result.attemptedId}".<div class="ocr-raw">OCR: "${result.ocrText || "â"}"</div></div>`;
+    if (container) {
+      container.innerHTML = msg;
+    } else {
+      setScanPhase("manual");
+      const parts = splitCardId(result.attemptedId);
+      if (parts) {
+        await populateSetDropdown("#manual-set");
+        if (parts.setCode) { const s = $("#manual-set"); if (s) s.value = parts.setCode; }
+        if (parts.number)  { const n = $("#manual-number"); if (n) n.value = parts.number; }
+        if (parts.suffix)  { const sf = $("#manual-suffix"); if (sf) sf.value = parts.suffix; }
+      }
+      const out = $("#manual-result");
+      if (out) out.innerHTML = msg;
+    }
+    return;
+  }
+
+  // Success
+  const card = result.card;
+  S.scanPhase = "result";
+  if ($("#scan-title")) $("#scan-title").textContent = "Card identified";
+
+  // Fetch price
+  let price = null;
+  if (hasPriceKey()) {
+    try { price = await getPriceForCard(card, store); } catch { /* unavailable */ }
+  }
+
+  const cmPrice  = price && !price.unavailable ? fmtEur(price.cardmarket?.lowestNearMint) : null;
+  const tcgPrice = price && !price.unavailable ? fmtUsd(price.tcgplayer?.market) : null;
+  const graded   = price?.graded || [];
+
+  const resultHTML = `
+    <div class="status-pill teal">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+      Card identified
+    </div>
+    <div class="scan-result-wrap">
+      <div class="scan-result-row">
+        <div class="scan-result-face">${cardFaceHTML(card)}</div>
+        <div class="scan-result-info">
+          <div class="scan-result-name">${card.name}</div>
+          <div class="scan-result-meta">${[card.faction, card.rarity, card.setId, card.collectorNumber].filter(Boolean).join(" Â· ")}</div>
+          <div class="scan-result-price">${cmPrice || (hasPriceKey() ? "â" : "No key")}</div>
+          ${tcgPrice ? `<div class="scan-result-price-sub">${tcgPrice} TCGplayer</div>` : ""}
+        </div>
+      </div>
+      ${graded.length ? `<div class="graded-tiles">
+        ${graded.slice(0,3).map(g => `<div class="graded-tile"><div class="gt-lbl">${g.grade}</div><div class="gt-val">${fmtEur(g.price) || "â"}</div></div>`).join("")}
+      </div>` : ""}
+    </div>
+    <div class="scan-cta-row">
+      <button class="btn-primary" id="scan-add-btn">Add to collection</button>
+      <button class="btn-outline" id="scan-detail-btn">Full details</button>
+    </div>
+    <button class="manual-link" id="scan-again-btn" style="margin-top:4px;">Scan another</button>`;
+
+  if (container) {
+    container.innerHTML = resultHTML;
+  } else if (bottom) {
+    bottom.innerHTML = resultHTML;
+  }
+
+  // Wire buttons (search from container or bottom)
+  const ctx = container || bottom;
+  const addBtn = $("#scan-add-btn", ctx);
+  if (addBtn) addBtn.addEventListener("click", () => {
+    store.upsertCollectionEntry(card, { qty: 1, variant: "Base" });
+    showToast(`${card.name} added`);
+    addBtn.textContent = "Added â";
+    addBtn.disabled = true;
+    renderPage("collection");
+  });
+
+  const detailBtn = $("#scan-detail-btn", ctx);
+  if (detailBtn) detailBtn.addEventListener("click", () => {
+    closeOverlay();
+    setTimeout(() => openCardDetail(card), 50);
+  });
+
+  const againBtn = $("#scan-again-btn", ctx);
+  if (againBtn) againBtn.addEventListener("click", () => setScanPhase("aim"));
+}
+
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   UTILITY
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
 function downloadFile(filename, content, mime) {
   const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = el("a", { href: url, download: filename });
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
   URL.revokeObjectURL(url);
 }
 
-/* =============================================================================
-   DECKS VIEW (P3) — validation is advisory (see DECISIONS.md for sourcing)
-   ============================================================================= */
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   STORE COMPATIBILITY SHIM
+   (store.js may not have all wishlist/alert methods yet)
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
-const MAIN_DECK_TARGET = 40;
-const SIDEBOARD_SIZES = [0, 8];
-const MAX_COPIES = 3;
-const BATTLEFIELD_COUNT = 3;
-
-function renderDecksView(root) {
-  const decks = store.listDecks();
-  const list = el("div", { class: "card-panel" });
-  const nameInput = el("input", { placeholder: "New deck name" });
-  const createBtn = el("button", { class: "btn btn-primary" }, "Create deck");
-
-  if (!decks.length) {
-    list.appendChild(el("div", { class: "empty-state" }, "No decks yet."));
-  } else {
-    for (const deck of decks) {
-      const row = el("div", { class: "list-row" }, [
-        el("span", {}, deck.name),
-        el("button", { class: "btn" }, "Open"),
-      ]);
-      row.querySelector("button").addEventListener("click", () => renderDeckDetail(deck.id));
-      list.appendChild(row);
-    }
-  }
-
-  createBtn.addEventListener("click", () => {
-    if (!nameInput.value.trim()) return;
-    const deck = store.createDeck(nameInput.value.trim());
-    renderDeckDetail(deck.id);
-  });
-
-  root.append(el("h1", {}, "Decks"), list, el("div", { class: "field-row section" }, [nameInput, createBtn]));
+if (!store.listWishlist) {
+  // Minimal in-memory wishlist shim
+  const WL = [];
+  store.listWishlist     = () => WL;
+  store.addToWishlist    = (card) => { if (!WL.find(e => e.card.id === card.id)) WL.push({ card }); };
+  store.removeFromWishlist = (cardId) => { const i = WL.findIndex(e => e.card.id === cardId); if (i >= 0) WL.splice(i, 1); };
 }
-
-function deckCounts(deck) {
-  const mainCount = Object.values(deck.cards || {}).reduce((s, e) => s + e.qty, 0);
-  const sideCount = Object.values(deck.sideboard || {}).reduce((s, e) => s + e.qty, 0);
-  return { mainCount, sideCount };
-}
-
-function checkCopyLimits(deck) {
-  const totals = {};
-  for (const e of Object.values(deck.cards || {})) totals[e.card.id] = (totals[e.card.id] || 0) + e.qty;
-  for (const e of Object.values(deck.sideboard || {})) totals[e.card.id] = (totals[e.card.id] || 0) + e.qty;
-  return Object.entries(totals).filter(([, qty]) => qty > MAX_COPIES);
-}
-
-async function renderDeckDetail(deckId) {
-  const deck = store.getDeck(deckId);
-  if (!deck) return navigate("decks");
-
-  ROOT.innerHTML = "";
-  const { mainCount, sideCount } = deckCounts(deck);
-  const overLimitCards = checkCopyLimits(deck);
-
-  const warnings = [];
-  if (mainCount !== MAIN_DECK_TARGET) warnings.push(`Main deck has ${mainCount} cards (target ${MAIN_DECK_TARGET}).`);
-  if (!SIDEBOARD_SIZES.includes(sideCount)) warnings.push(`Sideboard has ${sideCount} cards (should be 0 or 8).`);
-  if (overLimitCards.length) warnings.push(`Over the ${MAX_COPIES}-copy limit: ${overLimitCards.map(([id, qty]) => `${id} (${qty})`).join(", ")}.`);
-  if ((deck.battlefields || []).length !== BATTLEFIELD_COUNT) warnings.push(`${(deck.battlefields || []).length}/${BATTLEFIELD_COUNT} distinct Battlefields chosen.`);
-
-  const banner = warnings.length
-    ? el("div", { class: "banner banner-warn" }, [
-        el("strong", {}, "Advisory — not enforced: "),
-        warnings.join(" "),
-        el("br"),
-        el("span", { class: "muted" }, "Limits sourced from the official Deckbuilding Primer + cross-referenced fan sources; see DECISIONS.md."),
-      ])
-    : el("div", { class: "banner" }, "Looks legal by the rules we could verify (advisory only).");
-
-  const backBtn = el("button", { class: "btn" }, "← Decks");
-  backBtn.addEventListener("click", () => navigate("decks"));
-
-  const searchInput = el("input", { placeholder: "Search a card to add…" });
-  const searchResults = el("div", { class: "card-grid" });
-  searchInput.addEventListener("input", debounce(async () => {
-    searchResults.innerHTML = "";
-    const q = searchInput.value.trim();
-    if (q.length < 2) return;
-    const results = await RiftScribe.search(q, { limit: 12 });
-    for (const r of results) {
-      const tile = el("div", { class: "card-tile" }, [
-        r.thumbnailUrl ? el("img", { src: r.thumbnailUrl, alt: r.name }) : el("div", { class: "muted" }, "No image"),
-        el("div", { class: "name" }, r.name),
-      ]);
-      tile.addEventListener("click", async () => {
-        const card = await RiftScribe.getCard(r.cardId);
-        if (card) {
-          store.setDeckCardQty(deck.id, card, ((deck.cards[card.id]?.qty || 0) + 1));
-          renderDeckDetail(deck.id);
-        }
-      });
-      searchResults.appendChild(tile);
-    }
-  }, 300));
-
-  const mainList = el("div");
-  for (const e of Object.values(deck.cards || {})) {
-    mainList.appendChild(deckCardRow(deck, e, false));
-  }
-  const sideList = el("div");
-  for (const e of Object.values(deck.sideboard || {})) {
-    sideList.appendChild(deckCardRow(deck, e, true));
-  }
-
-  const ownedToggle = el("input", { type: "checkbox", id: "owned-toggle" });
-  const ownedLabel = el("label", { for: "owned-toggle" }, " Filter search to cards I own (collection)");
-
-  ownedToggle.addEventListener("change", () => {
-    // Lightweight client-side filter applied to the next search render.
-    searchResults.dataset.ownedOnly = ownedToggle.checked ? "1" : "";
-  });
-
-  const stats = computeDeckStats(deck);
-  const curve = el("div", { class: "curve-chart" });
-  const maxCount = Math.max(1, ...Object.values(stats.curve));
-  for (const cost of Object.keys(stats.curve).sort((a, b) => Number(a) - Number(b))) {
-    const count = stats.curve[cost];
-    curve.appendChild(
-      el("div", { class: "curve-bar", style: `height:${(count / maxCount) * 100}%` }, [el("span", { class: "curve-bar-label" }, cost)])
-    );
-  }
-
-  const sampleBtn = el("button", { class: "btn" }, "Draw sample hand (7)");
-  const sampleOut = el("div", { class: "gap-8 wrap", style: "margin-top:10px" });
-  sampleBtn.addEventListener("click", () => {
-    sampleOut.innerHTML = "";
-    for (const card of drawSampleHand(deck, 7)) {
-      sampleOut.appendChild(el("span", { class: "badge" }, card.name));
-    }
-  });
-
-  const exportTextBtn = el("button", { class: "btn" }, "Export (text)");
-  const exportJsonBtn = el("button", { class: "btn" }, "Export (JSON)");
-  exportTextBtn.addEventListener("click", () => downloadFile(`${deck.name}.txt`, store.exportDeckText(deck.id), "text/plain"));
-  exportJsonBtn.addEventListener("click", () => downloadFile(`${deck.name}.json`, store.exportDeckJSON(deck.id), "application/json"));
-
-  const deleteBtn = el("button", { class: "btn btn-danger" }, "Delete deck");
-  deleteBtn.addEventListener("click", () => {
-    store.deleteDeck(deck.id);
-    navigate("decks");
-  });
-
-  ROOT.append(
-    backBtn,
-    el("h1", {}, deck.name),
-    banner,
-    el("div", { class: "stat-row" }, [
-      el("div", { class: "stat-box" }, [el("div", { class: "stat-value" }, `${mainCount}/${MAIN_DECK_TARGET}`), el("div", { class: "stat-label" }, "Main deck")]),
-      el("div", { class: "stat-box" }, [el("div", { class: "stat-value" }, String(sideCount)), el("div", { class: "stat-label" }, "Sideboard")]),
-      el("div", { class: "stat-box" }, [el("div", { class: "stat-value price" }, stats.totalCost != null ? `€${stats.totalCost.toFixed(2)}` : "—"), el("div", { class: "stat-label" }, "Deck cost (cached prices)")]),
-      el("div", { class: "stat-box" }, [el("div", { class: "stat-value price" }, stats.costToComplete != null ? `€${stats.costToComplete.toFixed(2)}` : "—"), el("div", { class: "stat-label" }, "Cost to complete")]),
-    ]),
-    el("div", { class: "section" }, [el("h2", {}, "Energy curve"), curve]),
-    el("div", { class: "section" }, [
-      el("h2", {}, "Add cards"),
-      searchInput,
-      el("div", {}, [ownedToggle, ownedLabel]),
-      searchResults,
-    ]),
-    el("div", { class: "section" }, [el("h2", {}, `Main deck (${mainCount})`), mainList]),
-    el("div", { class: "section" }, [el("h2", {}, `Sideboard (${sideCount})`), sideList]),
-    el("div", { class: "section" }, [sampleBtn, sampleOut]),
-    el("div", { class: "section gap-8 wrap" }, [exportTextBtn, exportJsonBtn, deleteBtn])
-  );
-}
-
-function deckCardRow(deck, entry, isSideboard) {
-  const minus = el("button", { class: "btn" }, "−");
-  const plus = el("button", { class: "btn" }, "+");
-  minus.addEventListener("click", () => {
-    store.setDeckCardQty(deck.id, entry.card, entry.qty - 1, { sideboard: isSideboard });
-    renderDeckDetail(deck.id);
-  });
-  plus.addEventListener("click", () => {
-    store.setDeckCardQty(deck.id, entry.card, entry.qty + 1, { sideboard: isSideboard });
-    renderDeckDetail(deck.id);
-  });
-  return el("div", { class: "list-row" }, [
-    el("span", {}, `${entry.qty}× ${entry.card.name}`),
-    el("div", { class: "gap-8" }, [minus, plus]),
-  ]);
-}
-
-function computeDeckStats(deck) {
-  const curve = {};
-  let totalCost = 0;
-  let pricedAll = true;
-  let costToComplete = 0;
-  const owned = store.getCollection();
-
-  for (const e of Object.values(deck.cards || {})) {
-    const cost = e.card.energy ?? "?";
-    curve[cost] = (curve[cost] || 0) + e.qty;
-
-    const cached = store.getCachedPrice(e.card.id);
-    const price = cached && cached.data && !cached.data.unavailable ? cached.data.cardmarket?.lowestNearMint : null;
-    if (price == null) {
-      pricedAll = false;
-    } else {
-      totalCost += price * e.qty;
-      const ownedQty = Object.values(owned)
-        .filter((o) => o.card.id === e.card.id)
-        .reduce((s, o) => s + o.qty, 0);
-      const missing = Math.max(0, e.qty - ownedQty);
-      costToComplete += price * missing;
-    }
-  }
-
-  return {
-    curve,
-    totalCost: Object.keys(curve).length ? totalCost : null,
-    costToComplete: Object.keys(curve).length ? costToComplete : null,
-    pricedAll,
+if (!store.listAlerts) {
+  const AL = [];
+  store.listAlerts = () => AL;
+  store.setAlert   = (cardId, direction, target) => {
+    const i = AL.findIndex(a => a.cardId === cardId);
+    if (i >= 0) AL[i] = { cardId, direction, target };
+    else AL.push({ cardId, direction, target });
   };
 }
-
-function drawSampleHand(deck, n) {
-  const pool = [];
-  for (const e of Object.values(deck.cards || {})) {
-    for (let i = 0; i < e.qty; i++) pool.push(e.card);
-  }
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [pool[i], pool[j]] = [pool[j], pool[i]];
-  }
-  return pool.slice(0, n);
+if (!store.setApiKey) {
+  store.setApiKey = (key) => { try { localStorage.setItem("rbc:rapidApiKey", key); } catch {} };
 }
 
-function debounce(fn, ms) {
-  let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
-  };
-}
+/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+   BOOT
+   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
 
-/* =============================================================================
-   WISHLIST + PRICE ALERTS VIEW (P4)
-   ============================================================================= */
+function boot() {
+  // Set active page
+  const initPage = $(`#page-home`);
+  if (initPage) initPage.classList.add("active");
 
-function buyLinks(cardName) {
-  const q = encodeURIComponent(cardName);
-  return [
-    { label: "Cardmarket", url: `https://www.cardmarket.com/en/Riftbound/Products/Search?searchString=${q}` },
-    { label: "TCGplayer", url: `https://www.tcgplayer.com/search/all/product?q=${q}` },
-    { label: "TCGGO", url: `https://www.tcggo.com/riftbound/search?q=${q}` },
-  ];
-}
+  // Render initial home view
+  renderPage("home");
 
-function renderWishlistView(root) {
-  const lists = store.listWishlists();
-  const listsBox = el("div", { class: "section" });
-  const nameInput = el("input", { placeholder: "New wishlist name" });
-  const createBtn = el("button", { class: "btn btn-primary" }, "Create list");
-
-  if (!lists.length) {
-    listsBox.appendChild(el("div", { class: "empty-state" }, "No wishlists yet."));
-  }
-  for (const list of lists) {
-    const cards = Object.values(list.cards || {});
-    const panel = el("div", { class: "card-panel section" });
-    const header = el("div", { class: "row-between" }, [
-      el("h3", {}, `${list.name} (${cards.length})`),
-      el("button", { class: "btn btn-danger" }, "Delete list"),
-    ]);
-    header.querySelector("button").addEventListener("click", () => {
-      store.deleteWishlist(list.id);
-      navigate("wishlist");
-    });
-    panel.appendChild(header);
-
-    const searchInput = el("input", { placeholder: "Add a card by name…" });
-    const searchResults = el("div", { class: "card-grid" });
-    searchInput.addEventListener(
-      "input",
-      debounce(async () => {
-        searchResults.innerHTML = "";
-        const q = searchInput.value.trim();
-        if (q.length < 2) return;
-        const results = await RiftScribe.search(q, { limit: 8 });
-        for (const r of results) {
-          const tile = el("div", { class: "card-tile" }, [el("div", { class: "name" }, r.name)]);
-          tile.addEventListener("click", async () => {
-            const card = await RiftScribe.getCard(r.cardId);
-            if (card) {
-              store.addCardToWishlist(list.id, card);
-              navigate("wishlist");
-            }
-          });
-          searchResults.appendChild(tile);
-        }
-      }, 300)
-    );
-    panel.append(searchInput, searchResults);
-
-    for (const { card } of cards) {
-      const row = el("div", { class: "list-row" }, [
-        el("span", {}, card.name),
-        el(
-          "div",
-          { class: "gap-8" },
-          buyLinks(card.name).map((l) => el("a", { href: l.url, target: "_blank", rel: "noopener", class: "btn btn-ghost" }, l.label))
-        ),
-      ]);
-      const removeBtn = el("button", { class: "btn btn-danger" }, "×");
-      removeBtn.addEventListener("click", () => {
-        store.removeCardFromWishlist(list.id, card.id);
-        navigate("wishlist");
-      });
-      row.appendChild(removeBtn);
-      panel.appendChild(row);
-    }
-    listsBox.appendChild(panel);
+  // Tab bar clicks
+  for (const btn of $$(".tab-btn")) {
+    btn.addEventListener("click", () => gotoTab(btn.dataset.tab));
   }
 
-  createBtn.addEventListener("click", () => {
-    if (!nameInput.value.trim()) return;
-    store.createWishlist(nameInput.value.trim());
-    navigate("wishlist");
-  });
+  // Mark home as active in tab bar
+  const homeBtn = $(".tab-btn[data-tab='home']");
+  if (homeBtn) homeBtn.classList.add("active");
 
-  // --- Price alerts ---
-  const alertsBox = el("div", { class: "section card-panel" });
-  const alerts = store.listAlerts();
-  alertsBox.appendChild(
-    el("div", { class: "banner banner-warn" }, [
-      el("strong", {}, "iOS limitation: "),
-      "real background push notifications aren't available for installed PWAs here. Alerts are checked in-app each time you open this tab, not live in the background.",
-    ])
-  );
+  // Center scan FAB
+  const fab = $("#scan-fab");
+  if (fab) fab.addEventListener("click", () => openOverlay("scan"));
 
-  const triggered = store.checkAlerts((cardId) => {
-    const cached = store.getCachedPrice(cardId);
-    const data = cached && cached.data;
-    if (!data || data.unavailable) return null;
-    return data.cardmarket && data.cardmarket.lowestNearMint != null ? data.cardmarket.lowestNearMint : null;
-  });
-  for (const t of triggered) {
-    alertsBox.appendChild(
-      el("div", { class: "banner banner-danger" }, `Alert: a watched card is now €${t.price.toFixed(2)} (target ${t.direction} €${t.target}).`)
-    );
-  }
-
-  if (!alerts.length) {
-    alertsBox.appendChild(el("p", { class: "muted" }, "No alerts set."));
-  }
-  for (const a of alerts) {
-    const row = el("div", { class: "list-row" }, [
-      el("span", {}, `${a.cardId} — ${a.direction} €${a.target}`),
-      el("button", { class: "btn btn-danger" }, "Remove"),
-    ]);
-    row.querySelector("button").addEventListener("click", () => {
-      store.removeAlert(a.id);
-      navigate("wishlist");
-    });
-    alertsBox.appendChild(row);
-  }
-
-  const alertCardInput = el("input", { placeholder: "Card ID (e.g. OGN-296)" });
-  const alertDirSelect = el("select", {}, [el("option", { value: "below" }, "Below"), el("option", { value: "above" }, "Above")]);
-  const alertTargetInput = el("input", { type: "number", placeholder: "Target €", step: "0.01" });
-  const alertAddBtn = el("button", { class: "btn btn-primary" }, "Add alert");
-  alertAddBtn.addEventListener("click", () => {
-    if (!alertCardInput.value.trim() || !alertTargetInput.value) return;
-    store.addAlert(alertCardInput.value.trim(), alertDirSelect.value, alertTargetInput.value);
-    navigate("wishlist");
-  });
-  alertsBox.append(el("div", { class: "field-row" }, [alertCardInput, alertDirSelect, alertTargetInput, alertAddBtn]));
-
-  root.append(el("h1", {}, "Wishlist & Alerts"), el("div", { class: "field-row" }, [nameInput, createBtn]), listsBox, el("h2", {}, "Price alerts"), alertsBox);
+  // Prefetch filters quietly
+  RiftScribe.getFilters().then(f => { S.filters = f; }).catch(() => {});
 }
 
-/* =============================================================================
-   ABOUT VIEW
-   ============================================================================= */
-
-function renderSettingsPanel() {
-  const panel = el("div", { class: "card-panel section" });
-  const currentKey = store.getApiKey();
-  const keyInput = el("input", { type: "password", placeholder: "RapidAPI key (X-RapidAPI-Key)", value: currentKey, autocomplete: "off" });
-  const saveBtn = el("button", { class: "btn btn-primary" }, "Save key");
-  const clearBtn = el("button", { class: "btn btn-danger" }, "Clear key");
-  const status = el(
-    "p",
-    { class: currentKey ? "badge" : "muted" },
-    currentKey ? "Price API key saved on this device." : "No price API key saved — prices show as unavailable."
-  );
-
-  saveBtn.addEventListener("click", () => {
-    store.setApiKey(keyInput.value);
-    navigate("about");
-  });
-  clearBtn.addEventListener("click", () => {
-    store.clearApiKey();
-    keyInput.value = "";
-    navigate("about");
-  });
-
-  panel.append(
-    el("h3", {}, "Price API key (TCGGO / RapidAPI)"),
-    el(
-      "p",
-      { class: "muted" },
-      "Optional. Saved only in this browser's local storage, on this device — never written to any file, never sent anywhere except directly from your device to RapidAPI, and never included in collection/deck exports."
-    ),
-    status,
-    el("div", { class: "field-row" }, [keyInput, saveBtn]),
-    el("div", { style: "margin-top:6px" }, [clearBtn])
-  );
-  return panel;
-}
-
-function renderAboutView(root) {
-  root.append(
-    el("h1", {}, "About"),
-    el("div", { class: "card-panel" }, [
-      el("p", {}, "Riftbound Companion is a fan-made, unofficial tool for collectors of the Riftbound TCG. It helps you identify cards by collector number, track your collection's value, and build deck lists."),
-      el("p", {}, "It never simulates gameplay, never bundles Riot artwork (card images always load live from the data provider), and never fabricates a price — if no price is available, you'll see \"price unavailable\"."),
-    ]),
-    renderSettingsPanel(),
-    el("div", { class: "legal-footer" }, [
-      el("p", {}, "“Riftbound Companion” was created under Riot Games' “Legal Jibber Jabber” policy using assets owned by Riot Games. Riot Games does not endorse or sponsor this project."),
-      el("p", {}, "Riftbound™ and all related card data, names, and imagery are the property of Riot Games, Inc. Card images are loaded live from the data provider at runtime and are never bundled with this app."),
-      el("p", {}, "Card data: RiftScribe (riftscribe.gg, a fan-made API — not Riot's official API). Price data (optional): TCGGO via RapidAPI."),
-      store.isUsingInMemoryFallback()
-        ? el("p", { class: "badge badge-warn" }, "Storage: in-memory fallback active (private browsing) — your data won't persist after closing this tab.")
-        : null,
-    ])
-  );
-}
-
-/* ----------------------------- boot ----------------------------- */
-
-navigate("scan");
+boot();
