@@ -93,8 +93,13 @@ export function parseCollectorNumber(rawText, opts = {}) {
   const PRE = "(?:^|[^A-Z])";
   const POST = "(?:$|[^A-Z0-9])";
 
+  // SEP: allow space, dash, slash, asterisk, dot as separator between set
+  // code and number — OCR frequently introduces these from nearby card art,
+  // foil stamps, or the collector-number divider (e.g. "UNL*0223", "OGN/296").
+  const SEP = "[\\s\\-/*.,]*";
+
   // Token: "UNL T03" / "UNL-T03" / "UNLT03"
-  const tokenMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*T\\s*([0-9]+)${POST}`));
+  const tokenMatch = text.match(new RegExp(`${PRE}(${SET_CODE})${SEP}T\\s*([0-9]+)${POST}`));
   if (tokenMatch) {
     const [, setCode, digits] = tokenMatch;
     const num = digits.length < 2 ? digits.padStart(2, "0") : digits;
@@ -104,14 +109,14 @@ export function parseCollectorNumber(rawText, opts = {}) {
   // Signature/star: "OGN 301*" / "OGN-301/298*" — also covers Overnumbered
   // signature cards like "SFD 227*/221" (number > printed total; see the
   // file-header note above on why that's never treated as low-confidence).
-  const starMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)(?:/[0-9]+)?\\s*\\*${POST}`));
+  const starMatch = text.match(new RegExp(`${PRE}(${SET_CODE})${SEP}([0-9]+)(?:/[0-9]+)?\\s*\\*${POST}`));
   if (starMatch) {
     const [, setCode, number] = starMatch;
     return `${setCode}-${number}-star`;
   }
 
   // Alternate art: "OGN 100A" / "OGN-100A/298"
-  const altMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)([A-Z])(?:/[0-9]+)?${POST}`));
+  const altMatch = text.match(new RegExp(`${PRE}(${SET_CODE})${SEP}([0-9]+)([A-Z])(?:/[0-9]+)?${POST}`));
   if (altMatch) {
     const [, setCode, number, letter] = altMatch;
     return `${setCode}-${number}${letter.toLowerCase()}`;
@@ -119,7 +124,7 @@ export function parseCollectorNumber(rawText, opts = {}) {
 
   // Standard: "OGN 296/298" / "OGN-296" — also covers Overnumbered cards
   // like "SFD 235/221" (number > printed total is expected/valid here).
-  const stdMatch = text.match(new RegExp(`${PRE}(${SET_CODE})[\\s-]*([0-9]+)(?:/[0-9]+)?${POST}`));
+  const stdMatch = text.match(new RegExp(`${PRE}(${SET_CODE})${SEP}([0-9]+)(?:/[0-9]+)?${POST}`));
   if (stdMatch) {
     const [, setCode, number] = stdMatch;
     return `${setCode}-${number}`;
