@@ -1,14 +1,14 @@
-// js/app.js â Riftbound Companion PWA
+// js/app.js \u2014 Riftbound Companion PWA
 // Complete rewrite to Hexgate design system (pixel-perfect from .dc.html files).
-// All views wire to existing api.js / store.js / scan.js â no fabricated data.
+// All views wire to existing api.js / store.js / scan.js \u2014 no fabricated data.
 
 import * as store from "./store.js";
 import { RiftScribe, hasPriceKey, getPriceForCard, priceDayKey } from "./api.js";
 import { Scanner, scanAndLookup, manualLookup, splitCardId } from "./scan.js";
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    STATE
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 const TAB_ORDER = ["home", "collection", "decks", "wishlist"];
 
@@ -29,16 +29,16 @@ const S = {
   collFilter:   "all",
 };
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    DOM SHORTCUTS
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 const $ = (sel, ctx = document) => ctx.querySelector(sel);
 const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    FACTION COLOURS (matches dc.html CardFace component exactly)
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 const FACTION_MAP = {
   Fury:  ["#ff5b5b", "#3a1220"],
@@ -53,11 +53,11 @@ function factionColors(faction) {
   return FACTION_MAP[faction] || FACTION_MAP.Mind;
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    CARD FACE HTML COMPONENT
    Renders the CSS frame (placeholder/loading). When a real image URL
    exists it overlays on top via the <img> tag.
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 function cardFaceHTML(card) {
   const faction = card?.faction || "Mind";
@@ -65,7 +65,7 @@ function cardFaceHTML(card) {
   const name   = card?.name || "?";
   const emblem = name.charAt(0).toUpperCase();
   const rarity = card?.rarity || "";
-  const setNo  = [card?.setId, card?.collectorNumber].filter(Boolean).join(" Â· ");
+  const setNo  = [card?.setId, card?.collectorNumber].filter(Boolean).join(" \u00B7 ");
   const cost   = card?.energy ?? card?.cost ?? "";
   const imgSrc = card?.image || (card?.imageThumb?.medium) || (card?.imageThumb?.large) || "";
 
@@ -91,11 +91,11 @@ function cardFaceHTML(card) {
   </div>`;
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    PRICE FORMATTING
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
-function fmtEur(v) { return v != null ? `â¬${Number(v).toFixed(2)}` : null; }
+function fmtEur(v) { return v != null ? `\u20AC${Number(v).toFixed(2)}` : null; }
 function fmtUsd(v) { return v != null ? `$${Number(v).toFixed(2)}` : null; }
 
 function primaryPriceStr(p, market = "cm") {
@@ -104,12 +104,12 @@ function primaryPriceStr(p, market = "cm") {
   return fmtUsd(p?.tcgplayer?.market);
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    TOAST
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 let _toastTimer = null;
-function showToast(msg, icon = "â") {
+function showToast(msg, icon = "\u2713") {
   const el = $("#toast");
   el.innerHTML = `<span style="color:var(--teal)">${icon}</span> ${msg}`;
   el.removeAttribute("hidden");
@@ -120,9 +120,9 @@ function showToast(msg, icon = "â") {
   _toastTimer = setTimeout(() => { el.setAttribute("hidden", ""); }, 1900);
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    TAB NAVIGATION
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 function gotoTab(tab) {
   if (S.tabLock || tab === S.tab) return;
@@ -173,9 +173,9 @@ function renderPage(tab) {
   }
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    OVERLAYS
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 function openOverlay(type) {
   if (S.overlay) return;
@@ -214,9 +214,9 @@ function closeOverlay() {
   }, 420);
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    HOME VIEW
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 function renderHome() {
   const { totalCount, uniqueCount, entries } = store.collectionStats();
@@ -273,7 +273,7 @@ function renderHome() {
         const price = d && !d.unavailable ? fmtEur(d.cardmarket?.lowestNearMint) : null;
         return `<div class="recent-card" data-card-id="${entry.card.id}">
           ${cardFaceHTML(entry.card)}
-          <div class="recent-price">${price || "â"}</div>
+          <div class="recent-price">${price || "\u2014"}</div>
           <div class="recent-name">${entry.card.name}</div>
         </div>`;
       }).join("")}
@@ -299,13 +299,13 @@ function renderHome() {
         <span class="teal-dot"></span>
         COLLECTION VALUE
       </div>
-      <div class="hero-value">${totalEur > 0 ? fmtEur(totalEur) : "â¬0.00"}</div>
+      <div class="hero-value">${totalEur > 0 ? fmtEur(totalEur) : "\u20AC0.00"}</div>
       <div class="hero-meta">
         ${pricedCount < entries.length && entries.length > 0
           ? `${entries.length - pricedCount} card${entries.length - pricedCount !== 1 ? "s" : ""} unpriced`
           : pricedCount > 0 ? `updated ${new Date().toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}` : "Add cards to track value"}
       </div>
-      <div class="delta-chip neutral">â</div>
+      <div class="delta-chip neutral">\u2014</div>
     </div>
 
     ${alertBanner}
@@ -345,8 +345,8 @@ function renderHome() {
     </div>
 
     <div style="text-align:center;font-size:11px;color:var(--muted-2);margin-top:8px;line-height:1.7;">
-      Unofficial Â· not affiliated with Riot Games<br>
-      Riftboundâ¢ is a trademark of Riot Games
+      Unofficial \u00B7 not affiliated with Riot Games<br>
+      Riftbound\u2122 is a trademark of Riot Games
     </div>
   `;
 }
@@ -376,9 +376,9 @@ function attachHomeEvents(root) {
   if (settingsBtn) settingsBtn.addEventListener("click", () => renderSettingsModal());
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    SETTINGS MODAL (API key entry)
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 function renderSettingsModal() {
   const backdrop = document.createElement("div");
@@ -386,10 +386,10 @@ function renderSettingsModal() {
   backdrop.innerHTML = `
     <div style="width:100%;background:var(--surface);border-radius:22px;box-shadow:inset 0 0 0 1px var(--line),0 30px 60px rgba(0,0,0,.7);padding:24px;position:relative;">
       <div style="font-size:17px;font-weight:700;color:var(--text);margin-bottom:6px;">Settings</div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:20px;">API key is stored locally only â never committed or sent to any server other than RapidAPI.</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:20px;">API key is stored locally only \u2014 never committed or sent to any server other than RapidAPI.</div>
       <label class="form-label">RapidAPI Key (TCGGO prices)</label>
-      <input id="settings-key-input" class="form-input" type="password" placeholder="Paste key hereâ¦" value="${store.getApiKey ? (store.getApiKey() || "") : ""}" style="margin-bottom:16px;">
-      <div style="font-size:11px;color:var(--muted-2);margin-bottom:16px;line-height:1.6;">Free tier: ~100 requests/day. Get a key at rapidapi.com âº search "riftbound-prices-api".</div>
+      <input id="settings-key-input" class="form-input" type="password" placeholder="Paste key here\u2026" value="${store.getApiKey ? (store.getApiKey() || "") : ""}" style="margin-bottom:16px;">
+      <div style="font-size:11px;color:var(--muted-2);margin-bottom:16px;line-height:1.6;">Free tier: ~100 requests/day. Get a key at rapidapi.com \u203A search "riftbound-prices-api".</div>
       <div style="display:flex;gap:10px;">
         <button class="btn-primary full" id="settings-save-btn">Save key</button>
         <button class="btn-outline" id="settings-close-btn" style="flex:0 0 auto;padding:15px 20px;">Cancel</button>
@@ -407,9 +407,9 @@ function renderSettingsModal() {
   backdrop.addEventListener("click", e => { if (e.target === backdrop) document.body.removeChild(backdrop); });
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    COLLECTION VIEW
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 function renderCollection() {
   const { totalCount, uniqueCount, entries } = store.collectionStats();
@@ -442,9 +442,9 @@ function renderCollection() {
         return `<div class="grid-item" data-card-id="${entry.card.id}">
           <div class="grid-face-wrap">
             ${cardFaceHTML(entry.card)}
-            <div class="qty-badge">Ã${entry.qty}</div>
+            <div class="qty-badge">\u00D7${entry.qty}</div>
           </div>
-          <div class="grid-price">${totalPrice != null ? fmtEur(totalPrice) : "â"}</div>
+          <div class="grid-price">${totalPrice != null ? fmtEur(totalPrice) : "\u2014"}</div>
           <div class="grid-unit">${unitPrice != null ? `@ ${fmtEur(unitPrice)}` : "price unavailable"}</div>
         </div>`;
       }).join("")
@@ -459,7 +459,7 @@ function renderCollection() {
         <div class="view-title">Collection</div>
         ${totalEur > 0 ? `<div class="view-value"><div class="v-num">${fmtEur(totalEur)}</div><div class="v-lbl">Est. Value</div></div>` : ""}
       </div>
-      <div class="view-subtitle">${totalCount} card${totalCount !== 1 ? "s" : ""} Â· ${uniqueCount} unique</div>
+      <div class="view-subtitle">${totalCount} card${totalCount !== 1 ? "s" : ""} \u00B7 ${uniqueCount} unique</div>
     </div>
 
     <div class="search-bar">
@@ -485,9 +485,9 @@ function renderCollection() {
 
 function attachCollectionEvents(root) {
   const search = $("#coll-search", root);
-  if (search) search.addEventListener("nput", e => {
+  if (search) search.addEventListener("input", e => {
     S.collSearch = e.target.value;
-    ren.derPage("collection");
+    renderPage("collection");
   });
 
   for (const chip of $$(".chip[data-filter]", root)) {
@@ -520,9 +520,9 @@ function attachCollectionEvents(root) {
   });
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    DECKS VIEW
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 const MAIN_TARGET = 40;
 const MAX_COPIES  = 3;
@@ -539,7 +539,7 @@ function renderDecks() {
     const isLegal = mainCount === MAIN_TARGET;
     const mainPct = Math.min(100, Math.round(mainCount / MAIN_TARGET * 100));
 
-    // Energy curve: cost 1â6+
+    // Energy curve: cost 1\u20136+
     const curve = [0,0,0,0,0,0];
     for (const entry of cards) {
       const cost = entry.card?.energy ?? 0;
@@ -559,9 +559,9 @@ function renderDecks() {
       <div class="deck-hero" data-deck-id="${featured.id}">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
           <div class="deck-name">${featured.name}</div>
-          <span class="legality-chip ${isLegal ? "legal" : "illegal"}">${isLegal ? "â Legal" : `${mainCount}/${MAIN_TARGET}`}</span>
+          <span class="legality-chip ${isLegal ? "legal" : "illegal"}">${isLegal ? "\u2713 Legal" : `${mainCount}/${MAIN_TARGET}`}</span>
         </div>
-        <div class="deck-sub">${cards.length} unique card${cards.length !== 1 ? "s" : ""} Â· ${mainCount} in main deck</div>
+        <div class="deck-sub">${cards.length} unique card${cards.length !== 1 ? "s" : ""} \u00B7 ${mainCount} in main deck</div>
         <div class="prog-wrap">
           <div class="prog-label"><span>Main deck</span><span>${mainCount} / ${MAIN_TARGET}</span></div>
           <div class="prog-track"><div class="prog-fill" style="width:${mainPct}%"></div></div>
@@ -575,7 +575,7 @@ function renderDecks() {
         </div>
         <div style="display:flex;align-items:center;justify-content:space-between;margin-top:14px;">
           <span style="color:var(--muted-2);font-size:12px;">DECK VALUE</span>
-          <span style="color:var(--gold);font-weight:700;font-size:15px;">${deckEur > 0 ? fmtEur(deckEur) : "â"}</span>
+          <span style="color:var(--gold);font-weight:700;font-size:15px;">${deckEur > 0 ? fmtEur(deckEur) : "\u2014"}</span>
         </div>
       </div>`;
   }
@@ -662,17 +662,17 @@ function openDeckDetail(deckId) {
   const deck = store.getDeck ? store.getDeck(deckId) : null;
   if (!deck) return;
   showToast(`Opened: ${deck.name}`);
-  // Full deck editor is a complex feature â show toast for now
+  // Full deck editor is a complex feature \u2014 show toast for now
   // The user can manage quantity from card detail "Add to deck" flow
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    WISHLIST VIEW
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 function renderWishlist() {
   const wishlist = wishlistCards();
-  const alerts   = store.listAlerts  ? store.listAlerts()   : [];
+  const alerts   = store.listAlerts();
 
   // Build combined list: wishlist entries + alert annotations
   const alertMap = {};
@@ -701,14 +701,14 @@ function renderWishlist() {
     ? `<div class="wishlist-section-lbl">TRACKING ${wishlist.length} CARD${wishlist.length !== 1 ? "S" : ""}</div>
        ${wishlist.map(entry => {
           const d = store.getCachedPrice(entry.card.id)?.data;
-          const price = d && !d.unavailable ? fmtEur(d.cardmarket?.lowestNearMint) : "â";
+          const price = d && !d.unavailable ? fmtEur(d.cardmarket?.lowestNearMint) : "\u2014";
           const alert = alertMap[entry.card.id];
           const isTriggered = triggered.some(a => a.cardId === entry.card.id);
           return `<div class="wishlist-row" data-card-id="${entry.card.id}">
             <div style="width:54px;flex:none">${cardFaceHTML(entry.card)}</div>
             <div class="wishlist-info">
               <div class="wishlist-name">${entry.card.name}</div>
-              <div class="wishlist-target">${alert ? `target ${alert.direction === "below" ? "â¤" : "â¥"} ${fmtEur(alert.target)}` : "no alert set"}</div>
+              <div class="wishlist-target">${alert ? `target ${alert.direction === "below" ? "\u2264" : "\u2265"} ${fmtEur(alert.target)}` : "no alert set"}</div>
             </div>
             <div style="text-align:right;margin-right:8px;">
               <div class="wl-price">${price}</div>
@@ -752,9 +752,9 @@ function attachWishlistEvents(root) {
   }
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
-   CARD DETAIL OVERLAY â Analyst layout
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+   CARD DETAIL OVERLAY \u2014 Analyst layout
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 async function openCardDetail(card) {
   S.activeCard  = card;
@@ -788,10 +788,10 @@ function buildCardDetailHTML(card, price, market) {
   // Price values
   const cmPrice  = price && !price.unavailable ? fmtEur(price.cardmarket?.lowestNearMint) : null;
   const tcgPrice = price && !price.unavailable ? fmtUsd(price.tcgplayer?.market) : null;
-  const dispPrice = market === "cm" ? (cmPrice || "â") : (tcgPrice || "â");
+  const dispPrice = market === "cm" ? (cmPrice || "\u2014") : (tcgPrice || "\u2014");
 
   // Stat grid approximations from available data
-  // (API only gives current lowest â we don't have historical data)
+  // (API only gives current lowest \u2014 we don't have historical data)
   const cmRaw = price?.cardmarket?.lowestNearMint;
   const stats = cmRaw ? {
     avg7d:  fmtEur(cmRaw),  // same as current (no historical endpoint)
@@ -803,7 +803,7 @@ function buildCardDetailHTML(card, price, market) {
   // Graded values
   const graded = price?.graded || [];
   const gradedHTML = graded.length ? graded.filter(g => g.price).map((g, i) => {
-    const multi = cmRaw ? `${(g.price / cmRaw).toFixed(1)}Ã` : "";
+    const multi = cmRaw ? `${(g.price / cmRaw).toFixed(1)}\u00D7` : "";
     return `<div class="cd-graded-row">
       <span class="cg-name">${g.grade || "?"}</span>
       <span class="cg-right">
@@ -828,7 +828,7 @@ function buildCardDetailHTML(card, price, market) {
       <div class="cd-face-thumb">${cardFaceHTML(card)}</div>
       <div class="cd-text">
         <div class="cd-title">${card.name}</div>
-        <div class="cd-meta">${[card.faction, card.rarity, [card.setId, card.collectorNumber].filter(Boolean).join(" ")].filter(Boolean).join(" Â· ")}</div>
+        <div class="cd-meta">${[card.faction, card.rarity, [card.setId, card.collectorNumber].filter(Boolean).join(" ")].filter(Boolean).join(" \u00B7 ")}</div>
       </div>
       <button class="round-btn" id="cd-wishlist-btn" aria-label="${inWishlist ? "Remove from wishlist" : "Add to wishlist"}" style="color:${inWishlist ? "var(--gold)" : "var(--muted)"}">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="${inWishlist ? "var(--gold)" : "none"}" stroke="${inWishlist ? "var(--gold)" : "currentColor"}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -844,12 +844,12 @@ function buildCardDetailHTML(card, price, market) {
           <button class="${market === "tcg" ? "active" : ""}" id="cd-mkt-tcg">TCGplayer</button>
         </div>
         <div class="cd-trend-wrap">
-          <div class="cd-trend ${price && !price.unavailable ? "pos" : ""}">â</div>
+          <div class="cd-trend ${price && !price.unavailable ? "pos" : ""}">\u2014</div>
           <div class="cd-trend-lbl">30 days</div>
         </div>
       </div>
-      <div class="cd-price-big">${price ? dispPrice : (hasPriceKey() ? "Loadingâ¦" : "â")}</div>
-      ${price && price.unavailable ? `<div class="cd-no-data">${price.limitReached ? "Daily limit reached Â· resets 08:00 Berlin" : "Price unavailable Â· check API key in Settings"}</div>` : `
+      <div class="cd-price-big">${price ? dispPrice : (hasPriceKey() ? "Loading\u2026" : "\u2014")}</div>
+      ${price && price.unavailable ? `<div class="cd-no-data">${price.limitReached ? "Daily limit reached \u00B7 resets 08:00 Berlin" : "Price unavailable \u00B7 check API key in Settings"}</div>` : `
       <svg class="cd-chart" viewBox="0 0 330 96" preserveAspectRatio="none">
         <defs><linearGradient id="cg1" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stop-color="var(--teal)" stop-opacity=".2"/>
@@ -880,7 +880,7 @@ function buildCardDetailHTML(card, price, market) {
     </div>
 
     <div class="cd-disclaimer">
-      Prices via TCGGO Â· refreshed daily at 08:00 Â· unofficial, not affiliated with Riot Games
+      Prices via TCGGO \u00B7 refreshed daily at 08:00 \u00B7 unofficial, not affiliated with Riot Games
     </div>
 
     <div class="cd-sticky">
@@ -942,14 +942,14 @@ function promptPriceAlert(card) {
   backdrop.style.cssText = "position:fixed;inset:0;z-index:500;background:rgba(4,5,15,.85);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:24px;max-width:430px;margin:0 auto;";
   backdrop.innerHTML = `
     <div style="width:100%;background:var(--surface);border-radius:22px;padding:24px;box-shadow:inset 0 0 0 1px var(--line);">
-      <div style="font-size:15px;font-weight:700;margin-bottom:4px;">Price alert Â· ${card.name}</div>
+      <div style="font-size:15px;font-weight:700;margin-bottom:4px;">Price alert \u00B7 ${card.name}</div>
       <div style="font-size:12px;color:var(--muted);margin-bottom:16px;">Current: ${currentPrice ? fmtEur(currentPrice) : "unavailable"}</div>
       <label class="form-label">Alert me when price is</label>
       <div style="display:flex;gap:8px;margin-bottom:12px;">
         <button id="al-below" class="chip active" style="flex:1">Below</button>
         <button id="al-above" class="chip" style="flex:1">Above</button>
       </div>
-      <input id="al-target" class="form-input" type="number" step="0.01" placeholder="Target price (â¬)" style="margin-bottom:16px;">
+      <input id="al-target" class="form-input" type="number" step="0.01" placeholder="Target price (\u20AC)" style="margin-bottom:16px;">
       <div style="display:flex;gap:10px;">
         <button class="btn-primary full" id="al-save">Set alert</button>
         <button class="btn-outline" id="al-cancel" style="padding:15px 20px;">Cancel</button>
@@ -971,9 +971,9 @@ function promptPriceAlert(card) {
   backdrop.addEventListener("click", e => { if (e.target === backdrop) document.body.removeChild(backdrop); });
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    SCANNER OVERLAY
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 function initScanOverlay() {
   setScanPhase("aim");
@@ -1007,13 +1007,13 @@ async function startCamera() {
     });
     await S.scanner.start();
   } catch (err) {
-    // Camera permission denied or gnavailable
+    // Camera permission denied or unavailable
     const bottom = $("#scan-bottom");
     if (bottom) {
       bottom.innerHTML = `
         <div class="status-pill">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          ${err.message.includes("Permission") || err.message.includes("NotAllowed") ? "Camera permission denied" : "Camera unavailable â requires HTTPS"}
+          ${err.message.includes("Permission") || err.message.includes("NotAllowed") ? "Camera permission denied" : "Camera unavailable \u2014 requires HTTPS"}
         </div>
         <button class="manual-link" id="scan-goto-manual">Enter number manually</button>`;
       const manLink = $("#scan-goto-manual");
@@ -1046,15 +1046,15 @@ function setScanPhase(phase) {
     $("#scan-goto-manual").addEventListener("click", () => setScanPhase("manual"));
 
   } else if (phase === "scanning") {
-    if (title) title.textContent = "Readingâ¦";
+    if (title) title.textContent = "Reading\u2026";
     bottom.innerHTML = `
       <div class="status-pill">
         <svg class="sp-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
           <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
         </svg>
-        Reading numberâ¦
+        Reading number\u2026
       </div>
-      <div class="scan-hint-txt">Hold steadyâ¦</div>`;
+      <div class="scan-hint-txt">Hold steady\u2026</div>`;
 
   } else if (phase === "manual") {
     if (title) title.textContent = "Enter manually";
@@ -1068,7 +1068,7 @@ function setScanPhase(phase) {
           <div class="form-row">
             <div class="form-field">
               <label class="form-label">Set</label>
-              <select class="form-select" id="manual-set"><option value="">Setâ¦</option></select>
+              <select class="form-select" id="manual-set"><option value="">Set\u2026</option></select>
             </div>
             <div class="form-field">
               <label class="form-label">Number</label>
@@ -1080,7 +1080,7 @@ function setScanPhase(phase) {
             <select class="form-select" id="manual-suffix">
               <option value="">Base</option>
               <option value="a">Alt art (a)</option>
-              <option value="-star">Signature (â)</option>
+              <option value="-star">Signature (\u2605)</option>
             </select>
           </div>
           <button class="btn-primary full" id="manual-lookup" style="margin-bottom:8px;">Look up card</button>
@@ -1103,7 +1103,7 @@ async function populateSetDropdown(selector) {
   }
   const sel = $(selector);
   if (!sel || !S.filters?.sets) return;
-  sel.innerHTML = `<option value="">Setâ¦</option>` +
+  sel.innerHTML = `<option value="">Set\u2026</option>` +
     S.filters.sets.map(s => `<option value="${s}">${s}</option>`).join("");
 }
 
@@ -1138,7 +1138,7 @@ async function doManualLookup() {
   }
 
   const lookupBtn = $("#manual-lookup");
-  if (lookupBtn) { lookupBtn.disabled = true; lookupBtn.textContent = "Looking upâ¦"; }
+  if (lookupBtn) { lookupBtn.disabled = true; lookupBtn.textContent = "Looking up\u2026"; }
 
   try {
     const result = await manualLookup(setCode, number, suffix);
@@ -1154,7 +1154,7 @@ async function showScanResult(result, container) {
   // Handle non-found results
   if (result.status === "noMatch") {
     const box = container || bottom;
-    if (box) box.innerHTML += `<div class="warn-box">Couldn't read a number ("${result.ocrText || "â"}"). Try again or enter manually.<div class="ocr-raw">OCR: "${result.ocrText || "â"}"</div></div>`;
+    if (box) box.innerHTML += `<div class="warn-box">Couldn't read a number ("${result.ocrText || "\u2014"}"). Try again or enter manually.<div class="ocr-raw">OCR: "${result.ocrText || "\u2014"}"</div></div>`;
     if (!container) setScanPhase("aim");
     return;
   }
@@ -1173,12 +1173,12 @@ async function showScanResult(result, container) {
       if (inp) inp.value = num;
     }
     const out = $("#manual-result");
-    if (out) out.innerHTML = `<div class="warn-box">Read "${num || "?"}" but set code unclear. Check below.<div class="ocr-raw">OCR: "${result.ocrText || "â"}"</div></div>`;
+    if (out) out.innerHTML = `<div class="warn-box">Read "${num || "?"}" but set code unclear. Check below.<div class="ocr-raw">OCR: "${result.ocrText || "\u2014"}"</div></div>`;
     return;
   }
 
   if (result.status === "notFound") {
-    const msg = `<div class="err-box">No card found for "${result.attemptedId}".<div class="ocr-raw">OCR: "${result.ocrText || "â"}"</div></div>`;
+    const msg = `<div class="err-box">No card found for "${result.attemptedId}".<div class="ocr-raw">OCR: "${result.ocrText || "\u2014"}"</div></div>`;
     if (container) {
       container.innerHTML = msg;
     } else {
@@ -1221,13 +1221,13 @@ async function showScanResult(result, container) {
         <div class="scan-result-face">${cardFaceHTML(card)}</div>
         <div class="scan-result-info">
           <div class="scan-result-name">${card.name}</div>
-          <div class="scan-result-meta">${[card.faction, card.rarity, card.setId, card.collectorNumber].filter(Boolean).join(" Â· ")}</div>
-          <div class="scan-result-price">${cmPrice || (hasPriceKey() ? "â" : "No key")}</div>
+          <div class="scan-result-meta">${[card.faction, card.rarity, card.setId, card.collectorNumber].filter(Boolean).join(" \u00B7 ")}</div>
+          <div class="scan-result-price">${cmPrice || (hasPriceKey() ? "\u2014" : "No key")}</div>
           ${tcgPrice ? `<div class="scan-result-price-sub">${tcgPrice} TCGplayer</div>` : ""}
         </div>
       </div>
       ${graded.length ? `<div class="graded-tiles">
-        ${graded.slice(0,3).map(g => `<div class="graded-tile"><div class="gt-lbl">${g.grade}</div><div class="gt-val">${fmtEur(g.price) || "â"}</div></div>`).join("")}
+        ${graded.slice(0,3).map(g => `<div class="graded-tile"><div class="gt-lbl">${g.grade}</div><div class="gt-val">${fmtEur(g.price) || "\u2014"}</div></div>`).join("")}
       </div>` : ""}
     </div>
     <div class="scan-cta-row">
@@ -1248,7 +1248,7 @@ async function showScanResult(result, container) {
   if (addBtn) addBtn.addEventListener("click", () => {
     store.upsertCollectionEntry(card, { qty: 1, variant: "Base" });
     showToast(`${card.name} added`);
-    addBtn.textContent = "Added â";
+    addBtn.textContent = "Added \u2713";
     addBtn.disabled = true;
     renderPage("collection");
   });
@@ -1263,9 +1263,9 @@ async function showScanResult(result, container) {
   if (againBtn) againBtn.addEventListener("click", () => setScanPhase("aim"));
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    UTILITY
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 function downloadFile(filename, content, mime) {
   const blob = new Blob([content], { type: mime });
@@ -1276,9 +1276,9 @@ function downloadFile(filename, content, mime) {
   URL.revokeObjectURL(url);
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   WISHLIST HELPERS — bridge store's multi-list API to app's flat view
-   ═══════════════════════════════════════════════════════════════════ */
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+   WISHLIST HELPERS \u2014 bridge store's multi-list API to app's flat view
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 function _defaultWishlistId() {
   let lists = store.listWishlists();
@@ -1303,9 +1303,9 @@ function removeFromWishlist(cardId) {
   }
 }
 
-/* âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+/* \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
    BOOT
-   âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ */
+   \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550 */
 
 function boot() {
   // Set active page
