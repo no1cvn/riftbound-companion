@@ -1002,8 +1002,8 @@ function initScanOverlay() {
 async function startCamera() {
   try {
     S.scanner = new Scanner({
-      videoEl:   $("#scan-video"),
-      guideBoxEl: null, // we handle the guide visually in HTML
+      videoEl:    $("#scan-video"),
+      guideBoxEl: $(".scan-guide"),
     });
     await S.scanner.start();
   } catch (err) {
